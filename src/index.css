@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Construction-themed: Amber/Orange primary with slate backgrounds */
+    --background: 220 20% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 28 95% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 222 47% 20%;
+
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 8% 46%;
+
+    --accent: 28 95% 95%;
+    --accent-foreground: 28 95% 35%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 43 96% 56%;
+    --warning-foreground: 32 81% 20%;
+
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 28 95% 50%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar */
+    --sidebar: 222 47% 13%;
+    --sidebar-foreground: 220 14% 85%;
+    --sidebar-border: 222 40% 18%;
+    --sidebar-accent: 222 40% 20%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-primary: 28 95% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 220 14% 93%;
+
+    --card: 222 47% 11%;
+    --card-foreground: 220 14% 93%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 220 14% 93%;
+
+    --primary: 28 95% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 40% 18%;
+    --secondary-foreground: 220 14% 85%;
+
+    --muted: 222 40% 18%;
+    --muted-foreground: 220 8% 55%;
+
+    --accent: 28 70% 18%;
+    --accent-foreground: 28 95% 70%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 43 96% 56%;
+    --warning-foreground: 32 81% 15%;
+
+    --border: 222 40% 20%;
+    --input: 222 40% 20%;
+    --ring: 28 95% 55%;
+
+    --sidebar: 222 47% 7%;
+    --sidebar-foreground: 220 14% 80%;
+    --sidebar-border: 222 40% 14%;
+    --sidebar-accent: 222 40% 16%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-primary: 28 95% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out;
+  }
+}
