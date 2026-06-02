@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { supabase } from './utils/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { Toaster } from '@/components/ui/toaster'
@@ -69,10 +71,34 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [todos, setTodos] = useState<{ id: number; name: string }[]>([])
+
+  useEffect(() => {
+    async function getTodos() {
+      const { data: todos } = await supabase.from('todos').select()
+
+      if (todos) {
+        setTodos(todos)
+      }
+    }
+
+    getTodos()
+  }, [])
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AppRoutes />
+        <div className="min-h-screen bg-background">
+          <div className="p-4">
+            <h2 className="text-lg font-semibold text-foreground">Todos</h2>
+            <ul className="mt-2 list-disc list-inside text-sm text-muted-foreground">
+              {todos.map((todo) => (
+                <li key={todo.id}>{todo.name}</li>
+              ))}
+            </ul>
+          </div>
+          <AppRoutes />
+        </div>
       </BrowserRouter>
     </QueryClientProvider>
   )
