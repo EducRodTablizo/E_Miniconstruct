@@ -279,7 +279,7 @@ export default function InventoryPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="unit_price">Unit Price (PHP) *</Label>
-              <Input id="unit_price" type="number" step="0.01" min="0" {...register('unit_price')} />
+              <Input id="unit_price" type="number" step="1.00" min="0" {...register('unit_price')} />
               {errors.unit_price && <p className="text-xs text-destructive">{errors.unit_price.message}</p>}
             </div>
 
