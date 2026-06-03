@@ -19,18 +19,8 @@ export function useAuth() {
   }, [])
 
   useEffect(() => {
-    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, currentSession) => {
-        // Prevent setting unverified sessions automatically into application state
-        if (currentSession?.user && !currentSession.user.confirmed_at) {
-          setSession(null)
-          setUser(null)
-          setProfile(null)
-          if (event === 'INITIAL_SESSION') setLoading(false)
-          return
-        }
-
         setSession(currentSession)
         setUser(currentSession?.user ?? null)
         if (currentSession?.user) {
@@ -44,15 +34,7 @@ export function useAuth() {
       }
     )
 
-    // Then check existing session
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      // Guard layout check against unverified sessions left in local storage
-      if (currentSession?.user && !currentSession.user.confirmed_at) {
-        supabase.auth.signOut()
-        setLoading(false)
-        return
-      }
-
       setSession(currentSession)
       setUser(currentSession?.user ?? null)
       if (currentSession?.user) {
@@ -66,26 +48,13 @@ export function useAuth() {
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    
-    if (error) return { data, error }
-
-    // Enforce Requirement 5: Block unverified users from entering system
-    if (data.user && !data.user.confirmed_at) {
-      await supabase.auth.signOut() // Kill the active session token instantly
-      return { 
-        data: { user: null, session: null }, 
-        error: { name: 'AuthError', status: 403, message: 'Please verify your email address before logging in.' } 
-      }
-    }
-
-    if (data.user) {
-      // Log audit
-      await supabase.from('audit_logs').insert({
-        user_id: data.user.id,
-        action: 'LOGIN',
-        table_name: 'auth',
-        record_id: data.user.id,
-        details: { email: data.user.email },
+    if (!error && data.user) {
+      await supabase.rpc('log_audit_event', {
+        p_user_id: data.user.id,
+        p_action: 'LOGIN',
+        p_table_name: 'auth',
+        p_record_id: data.user.id,
+        p_details: { email: data.user.email },
       })
     }
     return { data, error }
@@ -93,12 +62,12 @@ export function useAuth() {
 
   const signOut = async () => {
     if (user) {
-      await supabase.from('audit_logs').insert({
-        user_id: user.id,
-        action: 'LOGOUT',
-        table_name: 'auth',
-        record_id: user.id,
-        details: {},
+      await supabase.rpc('log_audit_event', {
+        p_user_id: user.id,
+        p_action: 'LOGOUT',
+        p_table_name: 'auth',
+        p_record_id: user.id,
+        p_details: {},
       })
     }
     return supabase.auth.signOut()

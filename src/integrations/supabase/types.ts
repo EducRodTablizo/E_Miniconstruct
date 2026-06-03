@@ -3416,6 +3416,16 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      log_audit_event: {
+        Args: {
+          p_action: string
+          p_details?: Json
+          p_record_id?: string
+          p_table_name?: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
