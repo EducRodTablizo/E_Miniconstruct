@@ -28,8 +28,10 @@ export function useCreateTransaction() {
     }) => {
       const { data: { user } } = await supabase.auth.getUser()
 
-      // Generate transaction number
-      const { data: txnNum } = await supabase.rpc('generate_transaction_number')
+      // Generate transaction number via secure DB function
+      const { data: txnNum, error: rpcError } = await supabase.rpc('generate_transaction_number')
+      if (rpcError) throw rpcError
+
       const totalAmount = items.reduce((sum, i) => sum + i.product.unit_price * i.quantity, 0)
 
       // Create transaction
@@ -37,7 +39,7 @@ export function useCreateTransaction() {
         .from('transactions')
         .insert({
           transaction_number: txnNum,
-          customer_name: customerName,
+          customer_name: customerName || 'Walk-in Customer',
           total_amount: totalAmount,
           status: 'completed',
           created_by: user?.id ?? null,
@@ -46,7 +48,7 @@ export function useCreateTransaction() {
         .single()
       if (txnError) throw txnError
 
-      // Insert items (triggers auto-deduct inventory)
+      // Insert items — triggers: prevent_negative_inventory + deduct_inventory_on_sale
       const txnItems = items.map((i) => ({
         transaction_id: transaction.id,
         product_id: i.product.id,
@@ -58,12 +60,12 @@ export function useCreateTransaction() {
       if (itemsError) throw itemsError
 
       if (user) {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'CREATE_TRANSACTION',
-          table_name: 'transactions',
-          record_id: transaction.id,
-          details: { transaction_number: txnNum, total_amount: totalAmount },
+        await supabase.rpc('log_audit_event', {
+          p_user_id: user.id,
+          p_action: 'CREATE_TRANSACTION',
+          p_table_name: 'transactions',
+          p_record_id: transaction.id,
+          p_details: { transaction_number: txnNum, total_amount: totalAmount },
         })
       }
 

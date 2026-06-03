@@ -20,17 +20,21 @@ export function useCreateProduct() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (product: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'categories'>) => {
-      const { data, error } = await supabase.from('products').insert(product).select().single()
+      // Sanitize: convert empty string category_id to null
+      const payload = {
+        ...product,
+        category_id: product.category_id || null,
+      }
+      const { data, error } = await supabase.from('products').insert(payload).select().single()
       if (error) throw error
-      // Audit log
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'CREATE_PRODUCT',
-          table_name: 'products',
-          record_id: data.id,
-          details: { name: product.name },
+        await supabase.rpc('log_audit_event', {
+          p_user_id: user.id,
+          p_action: 'CREATE_PRODUCT',
+          p_table_name: 'products',
+          p_record_id: data.id,
+          p_details: { name: product.name },
         })
       }
       return data
@@ -42,22 +46,31 @@ export function useCreateProduct() {
 export function useUpdateProduct() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<Product> & { id: string }) => {
+    mutationFn: async (input: Partial<Product> & { id: string }) => {
+      const { id, ...rest } = input
+      // Strip joined/readonly fields before sending to DB
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { categories: _c, created_at: _ca, updated_at: _ua, ...updates } = rest
+      // Sanitize: convert empty category_id to null
+      const payload = {
+        ...updates,
+        category_id: updates.category_id || null,
+      }
       const { data, error } = await supabase
         .from('products')
-        .update(updates)
+        .update(payload)
         .eq('id', id)
         .select()
         .single()
       if (error) throw error
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'UPDATE_PRODUCT',
-          table_name: 'products',
-          record_id: id,
-          details: updates,
+        await supabase.rpc('log_audit_event', {
+          p_user_id: user.id,
+          p_action: 'UPDATE_PRODUCT',
+          p_table_name: 'products',
+          p_record_id: id,
+          p_details: { name: updates.name },
         })
       }
       return data
@@ -70,16 +83,16 @@ export function useDeleteProduct() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
+      const { data: { user } } = await supabase.auth.getUser()
       const { error } = await supabase.from('products').delete().eq('id', id)
       if (error) throw error
-      const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'DELETE_PRODUCT',
-          table_name: 'products',
-          record_id: id,
-          details: {},
+        await supabase.rpc('log_audit_event', {
+          p_user_id: user.id,
+          p_action: 'DELETE_PRODUCT',
+          p_table_name: 'products',
+          p_record_id: id,
+          p_details: {},
         })
       }
     },
