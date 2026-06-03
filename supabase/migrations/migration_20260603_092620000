@@ -1,0 +1,75 @@
+
+-- ============================================================
+-- ADD 'admin' BACK AS A VALID ROLE (3-role system)
+-- owner, admin, staff
+-- 'admin' has identical permissions to 'owner'
+-- ============================================================
+
+-- 1. Drop existing constraint and add updated one with 'admin' included
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check
+  CHECK (role IN ('owner', 'admin', 'staff'));
+
+-- 2. Assign 'admin' role to the specific account
+UPDATE profiles
+SET role = 'admin'
+WHERE email = 'rodbenedict.tablizo@gmail.com';
+
+-- 3. Update is_owner() helper to treat 'admin' as equivalent to 'owner'
+CREATE OR REPLACE FUNCTION is_owner()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS(
+    SELECT 1 FROM profiles
+    WHERE id = auth.uid()
+      AND role IN ('owner', 'admin')
+      AND is_active = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- 4. Update get_my_role() — no change needed, returns the literal role value
+
+-- 5. Update prevent_privilege_escalation trigger to recognize 'admin' as privileged
+CREATE OR REPLACE FUNCTION prevent_privilege_escalation()
+RETURNS TRIGGER AS $$
+DECLARE
+  caller_role TEXT;
+BEGIN
+  SELECT role INTO caller_role FROM profiles WHERE id = auth.uid();
+
+  -- Only owners/admins can change role on any profile
+  IF (caller_role NOT IN ('owner', 'admin')) AND (NEW.role IS DISTINCT FROM OLD.role) THEN
+    RAISE EXCEPTION 'Access denied: only owners and admins can change user roles';
+  END IF;
+
+  -- Only owners/admins can change is_active on someone else's profile
+  IF (caller_role NOT IN ('owner', 'admin')) AND (auth.uid() IS DISTINCT FROM NEW.id) AND (NEW.is_active IS DISTINCT FROM OLD.is_active) THEN
+    RAISE EXCEPTION 'Access denied: only owners and admins can activate/deactivate accounts';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. Update audit_logs RLS so admins can read too
+DROP POLICY IF EXISTS "Owners can view audit_logs" ON audit_logs;
+CREATE POLICY "Owners and admins can view audit_logs" ON audit_logs
+  FOR SELECT TO authenticated
+  USING (is_owner());  -- is_owner() now covers both owner and admin
+
+-- 7. Update product management RLS for admins
+DROP POLICY IF EXISTS "Owners can manage products" ON products;
+DROP POLICY IF EXISTS "Owners can update products" ON products;
+DROP POLICY IF EXISTS "Owners can delete products" ON products;
+
+CREATE POLICY "Owners and admins can insert products" ON products
+  FOR INSERT TO authenticated
+  WITH CHECK (is_owner());
+
+CREATE POLICY "Owners and admins can update products" ON products
+  FOR UPDATE TO authenticated
+  USING (is_owner())
+  WITH CHECK (is_owner());
+
+CREATE POLICY "Owners and admins can delete products" ON products
+  FOR DELETE TO authenticated
+  USING (is_owner());
