@@ -28,7 +28,7 @@ export default function InventoryPage() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
-  const { isOwner } = useRBAC()
+  const { isPrivileged } = useRBAC()
   const { data: products = [], isLoading } = useProducts()
   const { data: categories = [] } = useCategories()
   const createProduct = useCreateProduct()
@@ -114,7 +114,7 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
           <p className="text-muted-foreground text-sm mt-1">{products.length} construction materials</p>
         </div>
-        {isOwner ? (
+        {isPrivileged ? (
           <Button onClick={openAdd} className="gap-2">
             <Plus className="h-4 w-4" />
             Add Product
@@ -197,7 +197,7 @@ export default function InventoryPage() {
                   <TableHead>Stock</TableHead>
                   <TableHead>Reorder At</TableHead>
                   <TableHead>Status</TableHead>
-                  {isOwner && <TableHead className="text-right">Actions</TableHead>}
+                  {isPrivileged && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -224,7 +224,7 @@ export default function InventoryPage() {
                         {getStockStatusLabel(p.stock_quantity, p.reorder_level)}
                       </Badge>
                     </TableCell>
-                    {isOwner && (
+                    {isPrivileged && (
                       <TableCell>
                         <div className="flex items-center justify-end gap-2">
                           <Button variant="ghost" size="icon-sm" onClick={() => openEdit(p)}>
@@ -244,8 +244,8 @@ export default function InventoryPage() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Modal — owners only */}
-      {isOwner && (
+      {/* Add/Edit Modal — owners and admins only */}
+      {isPrivileged && (
         <>
           <Dialog open={modalOpen} onOpenChange={setModalOpen}>
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

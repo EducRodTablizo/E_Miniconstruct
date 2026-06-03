@@ -71,7 +71,7 @@ export function useToggleUserActive() {
 export function useUpdateUserRole() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: 'owner' | 'staff' }) => {
+    mutationFn: async ({ userId, role }: { userId: string; role: 'owner' | 'admin' | 'staff' }) => {
       const { error } = await supabase
         .from('profiles')
         .update({ role })
