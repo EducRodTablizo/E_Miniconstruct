@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { Plus, Search, Filter, Edit, Trash2, Package, X } from 'lucide-react'
+import { Plus, Search, Filter, Edit, Trash2, Package, X, Lock } from 'lucide-react'
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct, useCategories } from '@/hooks/useProducts'
+import { useRBAC } from '@/hooks/useRBAC'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,18 +16,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/hooks/useToast'
 import { formatCurrency, getStockStatusColor, getStockStatusLabel } from '@/lib/utils'
+import { productSchema, type ProductForm } from '@/lib/validation'
 import type { Product } from '@/types'
-
-const productSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  description: z.string().optional(),
-  category_id: z.string().optional(),
-  unit: z.string().min(1, 'Unit is required'),
-  unit_price: z.coerce.number().min(0, 'Price must be positive'),
-  stock_quantity: z.coerce.number().int().min(0, 'Quantity must be 0 or more'),
-  reorder_level: z.coerce.number().int().min(0, 'Reorder level must be 0 or more'),
-})
-type ProductForm = z.infer<typeof productSchema>
 
 const UNITS = ['pcs', 'bags', 'meters', 'kg', 'liters', 'rolls', 'sheets', 'sets', 'pairs', 'boxes', 'bundles']
 
@@ -38,6 +28,7 @@ export default function InventoryPage() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
+  const { isOwner } = useRBAC()
   const { data: products = [], isLoading } = useProducts()
   const { data: categories = [] } = useCategories()
   const createProduct = useCreateProduct()
@@ -52,13 +43,15 @@ export default function InventoryPage() {
   const filtered = products.filter(p => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
       (p.description ?? '').toLowerCase().includes(search.toLowerCase())
-    const matchCat = categoryFilter === 'all' || p.category_id === categoryFilter
+    const matchCat = categoryFilter === 'all' ||
+      (categoryFilter === '__none__' && !p.category_id) ||
+      p.category_id === categoryFilter
     return matchSearch && matchCat
   })
 
   const openAdd = () => {
     setEditProduct(null)
-    reset({ stock_quantity: 0, reorder_level: 10, unit: 'pcs', unit_price: 0 })
+    reset({ stock_quantity: 0, reorder_level: 10, unit: 'pcs', unit_price: 0, category_id: '' })
     setModalOpen(true)
   }
 
@@ -86,8 +79,15 @@ export default function InventoryPage() {
         toast({ title: 'Product added to inventory' })
       }
       setModalOpen(false)
-    } catch {
-      toast({ title: 'Error', description: 'Failed to save product. Please try again.', variant: 'destructive' })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save product'
+      if (msg.toLowerCase().includes('insufficient') || msg.toLowerCase().includes('stock')) {
+        toast({ title: 'Stock Error', description: msg, variant: 'destructive' })
+      } else if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('permission')) {
+        toast({ title: 'Permission Denied', description: 'Only owners can manage products.', variant: 'destructive' })
+      } else {
+        toast({ title: 'Error', description: msg, variant: 'destructive' })
+      }
     }
   }
 
@@ -96,8 +96,13 @@ export default function InventoryPage() {
     try {
       await deleteProduct.mutateAsync(deleteId)
       toast({ title: 'Product deleted from inventory' })
-    } catch {
-      toast({ title: 'Error', description: 'Cannot delete product with existing transactions.', variant: 'destructive' })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : ''
+      if (msg.includes('foreign key') || msg.includes('transaction')) {
+        toast({ title: 'Cannot Delete', description: 'This product has existing transactions. Deactivate or archive it instead.', variant: 'destructive' })
+      } else {
+        toast({ title: 'Error', description: 'Failed to delete product.', variant: 'destructive' })
+      }
     }
     setDeleteId(null)
   }
@@ -109,16 +114,23 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
           <p className="text-muted-foreground text-sm mt-1">{products.length} construction materials</p>
         </div>
-        <Button onClick={openAdd} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add Product
-        </Button>
+        {isOwner ? (
+          <Button onClick={openAdd} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add Product
+          </Button>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Lock className="h-3.5 w-3.5" />
+            View only — owners manage inventory
+          </div>
+        )}
       </div>
 
       {/* Filters */}
       <Card>
         <CardContent className="py-4">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -128,23 +140,27 @@ export default function InventoryPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-52">
-                <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Category filter — Filter icon is outside the SelectTrigger for clean display */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-full sm:w-52">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  <SelectItem value="__none__">No Category</SelectItem>
+                  {categories.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {(search || categoryFilter !== 'all') && (
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-1 text-muted-foreground"
+                className="gap-1 text-muted-foreground shrink-0"
                 onClick={() => { setSearch(''); setCategoryFilter('all') }}
               >
                 <X className="h-4 w-4" />
@@ -181,7 +197,7 @@ export default function InventoryPage() {
                   <TableHead>Stock</TableHead>
                   <TableHead>Reorder At</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {isOwner && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -204,22 +220,22 @@ export default function InventoryPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground">{p.reorder_level} {p.unit}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant={p.stock_quantity === 0 ? 'destructive' : p.stock_quantity <= p.reorder_level ? 'warning' : 'success'}
-                      >
+                      <Badge variant={p.stock_quantity === 0 ? 'destructive' : p.stock_quantity <= p.reorder_level ? 'warning' : 'success'}>
                         {getStockStatusLabel(p.stock_quantity, p.reorder_level)}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon-sm" onClick={() => openEdit(p)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteId(p.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {isOwner && (
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon-sm" onClick={() => openEdit(p)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setDeleteId(p.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -228,104 +244,108 @@ export default function InventoryPage() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="name">Product Name *</Label>
-              <Input id="name" placeholder="e.g. Portland Cement" {...register('name')} />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-            </div>
+      {/* Add/Edit Modal — owners only */}
+      {isOwner && (
+        <>
+          <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="name">Product Name *</Label>
+                  <Input id="name" placeholder="e.g. Portland Cement Type I" {...register('name')} />
+                  {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+                </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="description">Description</Label>
-              <Textarea id="description" placeholder="Optional description..." rows={2} {...register('description')} />
-            </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea id="description" placeholder="Optional product description (max 1000 chars)..." rows={2} {...register('description')} />
+                  {errors.description && <p className="text-xs text-destructive">{errors.description.message}</p>}
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Category</Label>
-                <Select
-                  value={watch('category_id') ?? ''}
-                  onValueChange={v => setValue('category_id', v)}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Category</Label>
+                    <Select
+                      value={watch('category_id') ?? ''}
+                      onValueChange={v => setValue('category_id', v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map(c => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Unit *</Label>
+                    <Select value={watch('unit') ?? 'pcs'} onValueChange={v => setValue('unit', v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {errors.unit && <p className="text-xs text-destructive">{errors.unit.message}</p>}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="unit_price">Unit Price (PHP) *</Label>
+                  <Input id="unit_price" type="number" step="0.01" min="0" max="9999999" placeholder="0.00" {...register('unit_price')} />
+                  {errors.unit_price && <p className="text-xs text-destructive">{errors.unit_price.message}</p>}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="stock_quantity">Stock Quantity *</Label>
+                    <Input id="stock_quantity" type="number" min="0" max="999999" placeholder="0" {...register('stock_quantity')} />
+                    {errors.stock_quantity && <p className="text-xs text-destructive">{errors.stock_quantity.message}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="reorder_level">Reorder Level *</Label>
+                    <Input id="reorder_level" type="number" min="0" max="999999" placeholder="10" {...register('reorder_level')} />
+                    {errors.reorder_level && <p className="text-xs text-destructive">{errors.reorder_level.message}</p>}
+                  </div>
+                </div>
+
+                <DialogFooter className="pt-2">
+                  <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending}>
+                    {(createProduct.isPending || updateProduct.isPending) ? 'Saving...' : editProduct ? 'Save Changes' : 'Add Product'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Product</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete this product? This action cannot be undone and will remove the item from your inventory.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={handleDelete}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Unit *</Label>
-                <Select value={watch('unit')} onValueChange={v => setValue('unit', v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {errors.unit && <p className="text-xs text-destructive">{errors.unit.message}</p>}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="unit_price">Unit Price (PHP) *</Label>
-              <Input id="unit_price" type="number" step="1.00" min="0" {...register('unit_price')} />
-              {errors.unit_price && <p className="text-xs text-destructive">{errors.unit_price.message}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="stock_quantity">Stock Quantity *</Label>
-                <Input id="stock_quantity" type="number" min="0" {...register('stock_quantity')} />
-                {errors.stock_quantity && <p className="text-xs text-destructive">{errors.stock_quantity.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="reorder_level">Reorder Level *</Label>
-                <Input id="reorder_level" type="number" min="0" {...register('reorder_level')} />
-                {errors.reorder_level && <p className="text-xs text-destructive">{errors.reorder_level.message}</p>}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending}>
-                {(createProduct.isPending || updateProduct.isPending) ? 'Saving...' : editProduct ? 'Save Changes' : 'Add Product'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Product</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this product? This action cannot be undone and will remove the item from your inventory.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
     </div>
   )
 }

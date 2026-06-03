@@ -15,7 +15,8 @@ export function useAuth() {
       .select('*')
       .eq('id', userId)
       .maybeSingle()
-    setProfile(data)
+    setProfile(data as Profile | null)
+    return data as Profile | null
   }, [])
 
   useEffect(() => {
@@ -48,15 +49,27 @@ export function useAuth() {
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
     if (!error && data.user) {
+      // Check if account is active (deactivated by owner)
+      const userProfile = await fetchProfile(data.user.id)
+      if (userProfile && !userProfile.is_active) {
+        await supabase.auth.signOut()
+        return {
+          data: { user: null, session: null },
+          error: { message: 'Your account has been deactivated. Please contact the system administrator.' } as Error,
+        }
+      }
+
       await supabase.rpc('log_audit_event', {
         p_user_id: data.user.id,
         p_action: 'LOGIN',
         p_table_name: 'auth',
         p_record_id: data.user.id,
-        p_details: { email: data.user.email },
+        p_details: { email: data.user.email, role: userProfile?.role },
       })
     }
+
     return { data, error }
   }
 
