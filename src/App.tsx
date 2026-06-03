@@ -38,10 +38,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>
 }
 
-/** Requires owner role — redirects staff to /dashboard with a warning */
+/** Requires owner or admin role — redirects staff to /dashboard */
 function OwnerOnlyRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, profile } = useAuth()
-  const { isOwner } = useRBAC()
+  const { isPrivileged } = useRBAC()
 
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
@@ -49,7 +49,7 @@ function OwnerOnlyRoute({ children }: { children: React.ReactNode }) {
   // Profile still loading — wait
   if (profile === null) return <LoadingScreen message="Verifying permissions..." />
 
-  if (!isOwner) return <Navigate to="/dashboard" replace />
+  if (!isPrivileged) return <Navigate to="/dashboard" replace />
   return <AppLayout>{children}</AppLayout>
 }
 

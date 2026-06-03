@@ -2,7 +2,7 @@ export interface Profile {
   id: string
   full_name: string
   email: string
-  role: 'owner' | 'staff'
+  role: 'owner' | 'admin' | 'staff'
   is_active: boolean
   created_at: string
 }

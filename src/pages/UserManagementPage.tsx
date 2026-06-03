@@ -29,7 +29,7 @@ const passwordRules = [
 ]
 
 export default function UserManagementPage() {
-  const { isOwner } = useRBAC()
+  const { isPrivileged } = useRBAC()
   const { profile: currentProfile } = useAuth()
   const { data: staffList = [], isLoading } = useStaffList()
   const createStaff = useCreateStaff()
@@ -46,8 +46,8 @@ export default function UserManagementPage() {
   })
   const watchedPassword = watch('password') ?? ''
 
-  // Guard: only owners can access this page
-  if (!isOwner && currentProfile !== null) {
+  // Guard: only owners and admins can access this page
+  if (!isPrivileged && currentProfile !== null) {
     return <Navigate to="/dashboard" replace />
   }
 
@@ -77,7 +77,7 @@ export default function UserManagementPage() {
     setToggleTarget(null)
   }
 
-  const handleRoleChange = async (userId: string, newRole: 'owner' | 'staff', name: string) => {
+  const handleRoleChange = async (userId: string, newRole: 'owner' | 'admin' | 'staff', name: string) => {
     if (userId === currentProfile?.id) {
       toast({ title: 'Cannot change your own role', variant: 'destructive' })
       return
@@ -181,15 +181,15 @@ export default function UserManagementPage() {
                       <TableCell className="text-muted-foreground text-sm">{u.email ?? '—'}</TableCell>
                       <TableCell>
                         {isSelf ? (
-                          <Badge variant={u.role === 'owner' ? 'default' : 'secondary'}>
-                            {u.role === 'owner' ? 'Owner' : 'Staff'}
+                          <Badge variant={u.role === 'staff' ? 'secondary' : 'default'}>
+                            {u.role === 'owner' ? 'Owner' : u.role === 'admin' ? 'Admin' : 'Staff'}
                           </Badge>
                         ) : (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="sm" className="h-7 gap-1 px-2">
-                                <Badge variant={u.role === 'owner' ? 'default' : 'secondary'}>
-                                  {u.role === 'owner' ? 'Owner' : 'Staff'}
+                                <Badge variant={u.role === 'staff' ? 'secondary' : 'default'}>
+                                  {u.role === 'owner' ? 'Owner' : u.role === 'admin' ? 'Admin' : 'Staff'}
                                 </Badge>
                                 <ChevronDown className="h-3 w-3 text-muted-foreground" />
                               </Button>
@@ -197,6 +197,9 @@ export default function UserManagementPage() {
                             <DropdownMenuContent align="start">
                               <DropdownMenuItem onClick={() => handleRoleChange(u.id, 'owner', u.full_name)} disabled={u.role === 'owner'}>
                                 Set as Owner
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleRoleChange(u.id, 'admin', u.full_name)} disabled={u.role === 'admin'}>
+                                Set as Admin
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleRoleChange(u.id, 'staff', u.full_name)} disabled={u.role === 'staff'}>
                                 Set as Staff
