@@ -3216,20 +3216,26 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          email: string | null
           full_name: string
           id: string
+          is_active: boolean
           role: string
         }
         Insert: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id: string
+          is_active?: boolean
           role?: string
         }
         Update: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id?: string
+          is_active?: boolean
           role?: string
         }
         Relationships: []
@@ -3415,6 +3421,14 @@ export type Database = {
       generate_transaction_number: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      get_my_role: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      is_owner: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
       }
       log_audit_event: {
         Args: {

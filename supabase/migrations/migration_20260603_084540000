@@ -1,0 +1,183 @@
+
+-- ============================================================
+-- RBAC MIGRATION: owner/staff roles, profile enhancements
+-- ============================================================
+
+-- 1. Add new columns to profiles
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+
+-- 2. Update existing 'admin' profiles → 'owner'
+UPDATE profiles SET role = 'owner' WHERE role = 'admin' OR role NOT IN ('owner', 'staff');
+
+-- 3. Add role constraint
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('owner', 'staff'));
+
+-- 4. Sync email from auth.users into profiles
+UPDATE profiles p
+SET email = u.email
+FROM auth.users u
+WHERE p.id = u.id AND p.email IS NULL;
+
+-- 5. RBAC helper functions
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS TEXT AS $$
+  SELECT role FROM profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION is_owner()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS(
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'owner' AND is_active = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+GRANT EXECUTE ON FUNCTION get_my_role TO authenticated;
+GRANT EXECUTE ON FUNCTION is_owner TO authenticated;
+
+-- 6. Update handle_new_user trigger → new signups get 'staff' role by default
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, email, role, is_active)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    NEW.email,
+    'staff',  -- All new accounts created as staff; owner upgrades manually
+    true
+  )
+  ON CONFLICT (id) DO UPDATE
+    SET full_name = EXCLUDED.full_name,
+        email     = EXCLUDED.email;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Role-change / privilege escalation prevention trigger
+CREATE OR REPLACE FUNCTION prevent_privilege_escalation()
+RETURNS TRIGGER AS $$
+DECLARE
+  caller_role TEXT;
+BEGIN
+  -- Get the role of the user making this change
+  SELECT role INTO caller_role FROM profiles WHERE id = auth.uid();
+
+  -- Block non-owners from changing role on any profile
+  IF (caller_role IS DISTINCT FROM 'owner') AND (NEW.role IS DISTINCT FROM OLD.role) THEN
+    RAISE EXCEPTION 'Access denied: only owners can change user roles';
+  END IF;
+
+  -- Block non-owners from changing is_active on someone else's profile
+  IF (caller_role IS DISTINCT FROM 'owner') AND (auth.uid() IS DISTINCT FROM NEW.id) AND (NEW.is_active IS DISTINCT FROM OLD.is_active) THEN
+    RAISE EXCEPTION 'Access denied: only owners can activate/deactivate accounts';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_prevent_privilege_escalation ON profiles;
+CREATE TRIGGER trg_prevent_privilege_escalation
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION prevent_privilege_escalation();
+
+-- 8. Re-create profiles RLS policies with proper RBAC
+DROP POLICY IF EXISTS "Authenticated can read profiles" ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile except role" ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+DROP POLICY IF EXISTS "Profile update policy" ON profiles;
+
+-- All authenticated users can read all profiles (needed for audit logs join, etc.)
+CREATE POLICY "Authenticated can read profiles" ON profiles
+  FOR SELECT TO authenticated USING (true);
+
+-- Users can update own profile; owners can update any profile
+-- Role/is_active changes are guarded by the trigger above
+CREATE POLICY "Profile update policy" ON profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id OR is_owner())
+  WITH CHECK (auth.uid() = id OR is_owner());
+
+-- 9. Fix generate_transaction_number + generate_return_number with explicit grants
+CREATE OR REPLACE FUNCTION generate_transaction_number()
+RETURNS TEXT AS $$
+DECLARE
+  today TEXT := to_char(NOW() AT TIME ZONE 'Asia/Manila', 'YYYYMMDD');
+  seq   INTEGER;
+BEGIN
+  SELECT COUNT(*) + 1 INTO seq
+  FROM transactions
+  WHERE transaction_number LIKE 'TXN-' || today || '-%';
+  RETURN 'TXN-' || today || '-' || lpad(seq::TEXT, 4, '0');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION generate_return_number()
+RETURNS TEXT AS $$
+DECLARE
+  today TEXT := to_char(NOW() AT TIME ZONE 'Asia/Manila', 'YYYYMMDD');
+  seq   INTEGER;
+BEGIN
+  SELECT COUNT(*) + 1 INTO seq
+  FROM returns
+  WHERE return_number LIKE 'RTN-' || today || '-%';
+  RETURN 'RTN-' || today || '-' || lpad(seq::TEXT, 4, '0');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION generate_transaction_number TO authenticated;
+GRANT EXECUTE ON FUNCTION generate_return_number TO authenticated;
+GRANT EXECUTE ON FUNCTION log_audit_event TO authenticated;
+
+-- 10. Ensure all table RLS policies are tight
+-- Transactions: only active authenticated users
+DROP POLICY IF EXISTS "Authenticated users can manage transactions" ON transactions;
+CREATE POLICY "Active users can manage transactions" ON transactions
+  FOR ALL TO authenticated
+  USING (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true))
+  WITH CHECK (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true));
+
+DROP POLICY IF EXISTS "Authenticated users can manage transaction_items" ON transaction_items;
+CREATE POLICY "Active users can manage transaction_items" ON transaction_items
+  FOR ALL TO authenticated
+  USING (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true))
+  WITH CHECK (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true));
+
+DROP POLICY IF EXISTS "Authenticated users can manage returns" ON returns;
+CREATE POLICY "Active users can manage returns" ON returns
+  FOR ALL TO authenticated
+  USING (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true))
+  WITH CHECK (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true));
+
+DROP POLICY IF EXISTS "Authenticated users can manage return_items" ON return_items;
+CREATE POLICY "Active users can manage return_items" ON return_items
+  FOR ALL TO authenticated
+  USING (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true))
+  WITH CHECK (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true));
+
+-- Products: owners can manage, staff can only read + active check
+DROP POLICY IF EXISTS "Authenticated users can manage products" ON products;
+CREATE POLICY "Staff can view products" ON products
+  FOR SELECT TO authenticated
+  USING (EXISTS(SELECT 1 FROM profiles WHERE id = auth.uid() AND is_active = true));
+
+CREATE POLICY "Owners can manage products" ON products
+  FOR INSERT TO authenticated
+  WITH CHECK (is_owner());
+
+CREATE POLICY "Owners can update products" ON products
+  FOR UPDATE TO authenticated
+  USING (is_owner())
+  WITH CHECK (is_owner());
+
+CREATE POLICY "Owners can delete products" ON products
+  FOR DELETE TO authenticated
+  USING (is_owner());
+
+-- Audit logs: only owners can read, no direct insert (via function only)
+DROP POLICY IF EXISTS "Authenticated users can view audit_logs" ON audit_logs;
+CREATE POLICY "Owners can view audit_logs" ON audit_logs
+  FOR SELECT TO authenticated
+  USING (is_owner());

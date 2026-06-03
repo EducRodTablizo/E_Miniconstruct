@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Eye, ShoppingCart } from 'lucide-react'
+import { Plus, Search, Eye, ShoppingCart, X } from 'lucide-react'
 import { useTransactions, useCreateTransaction } from '@/hooks/useTransactions'
 import { useProducts } from '@/hooks/useProducts'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/useToast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { customerNameSchema } from '@/lib/validation'
 import type { CartItem, Transaction } from '@/types'
 
 function StatusBadge({ status }: { status: string }) {
@@ -20,14 +21,32 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">Fully Returned</Badge>
 }
 
+function parseTransactionError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  if (lower.includes('insufficient stock') || lower.includes('insufficient')) {
+    return 'Insufficient stock for one or more items. Please check inventory levels.'
+  }
+  if (lower.includes('not found')) return 'One or more products no longer exist in inventory.'
+  if (lower.includes('permission') || lower.includes('policy') || lower.includes('rls')) {
+    return 'You do not have permission to record transactions.'
+  }
+  if (lower.includes('network') || lower.includes('fetch')) {
+    return 'Network error. Please check your connection and try again.'
+  }
+  return msg || 'Failed to record transaction. Please try again.'
+}
+
 export default function TransactionsPage() {
   const [search, setSearch] = useState('')
   const [newTxnOpen, setNewTxnOpen] = useState(false)
   const [viewTxn, setViewTxn] = useState<Transaction | null>(null)
   const [customerName, setCustomerName] = useState('Walk-in Customer')
+  const [customerNameError, setCustomerNameError] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
   const [qty, setQty] = useState(1)
+  const [qtyError, setQtyError] = useState('')
 
   const { data: transactions = [], isLoading } = useTransactions()
   const { data: products = [] } = useProducts()
@@ -39,47 +58,67 @@ export default function TransactionsPage() {
   )
 
   const addToCart = () => {
+    setQtyError('')
     const product = products.find(p => p.id === selectedProductId)
-    if (!product) return
-    if (qty <= 0) { toast({ title: 'Invalid quantity', variant: 'destructive' }); return }
-    if (qty > product.stock_quantity) {
-      toast({ title: 'Insufficient stock', description: `Only ${product.stock_quantity} ${product.unit} available.`, variant: 'destructive' })
+    if (!product) { toast({ title: 'Please select a product', variant: 'destructive' }); return }
+
+    const safeQty = Math.floor(qty)
+    if (!safeQty || safeQty <= 0) { setQtyError('Quantity must be at least 1'); return }
+    if (safeQty > 999999) { setQtyError('Quantity is too large'); return }
+
+    const existingCartItem = cart.find(i => i.product.id === product.id)
+    const alreadyInCart = existingCartItem?.quantity ?? 0
+    if (safeQty + alreadyInCart > product.stock_quantity) {
+      setQtyError(`Only ${product.stock_quantity - alreadyInCart} more units available`)
       return
     }
-    const existing = cart.findIndex(i => i.product.id === product.id)
-    if (existing >= 0) {
-      const updated = [...cart]
-      const newQty = updated[existing].quantity + qty
-      if (newQty > product.stock_quantity) {
-        toast({ title: 'Insufficient stock', variant: 'destructive' })
-        return
-      }
-      updated[existing].quantity = newQty
-      setCart(updated)
+
+    if (existingCartItem) {
+      setCart(cart.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + safeQty } : i))
     } else {
-      setCart([...cart, { product, quantity: qty }])
+      setCart([...cart, { product, quantity: safeQty }])
     }
     setSelectedProductId('')
     setQty(1)
   }
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(i => i.product.id !== productId))
-  }
+  const removeFromCart = (productId: string) => setCart(cart.filter(i => i.product.id !== productId))
 
   const cartTotal = cart.reduce((sum, i) => sum + i.product.unit_price * i.quantity, 0)
 
   const handleSubmitTransaction = async () => {
-    if (cart.length === 0) { toast({ title: 'Cart is empty', variant: 'destructive' }); return }
-    if (!customerName.trim()) { toast({ title: 'Customer name is required', variant: 'destructive' }); return }
+    // Validate customer name
+    const nameResult = customerNameSchema.safeParse(customerName)
+    if (!nameResult.success) {
+      setCustomerNameError(nameResult.error.issues[0].message)
+      return
+    }
+    setCustomerNameError('')
+
+    if (cart.length === 0) { toast({ title: 'Cart is empty', description: 'Add at least one product to the cart.', variant: 'destructive' }); return }
+
+    // Re-validate cart quantities against current stock (guard against stale data)
+    for (const item of cart) {
+      const liveProduct = products.find(p => p.id === item.product.id)
+      if (liveProduct && item.quantity > liveProduct.stock_quantity) {
+        toast({
+          title: 'Stock Changed',
+          description: `${item.product.name} now only has ${liveProduct.stock_quantity} units available. Please update your cart.`,
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
-      await createTransaction.mutateAsync({ customerName, items: cart })
-      toast({ title: 'Transaction recorded successfully!', description: `Total: ${formatCurrency(cartTotal)}` })
+      await createTransaction.mutateAsync({ customerName: nameResult.data, items: cart })
+      toast({ title: 'Transaction recorded!', description: `Total: ${formatCurrency(cartTotal)}` })
       setNewTxnOpen(false)
       setCart([])
       setCustomerName('Walk-in Customer')
-    } catch {
-      toast({ title: 'Error', description: 'Failed to record transaction.', variant: 'destructive' })
+      setCustomerNameError('')
+    } catch (err) {
+      toast({ title: 'Transaction Failed', description: parseTransactionError(err), variant: 'destructive' })
     }
   }
 
@@ -161,24 +200,30 @@ export default function TransactionsPage() {
       </Card>
 
       {/* New Transaction Dialog */}
-      <Dialog open={newTxnOpen} onOpenChange={setNewTxnOpen}>
+      <Dialog open={newTxnOpen} onOpenChange={open => { setNewTxnOpen(open); if (!open) { setCart([]); setCustomerName('Walk-in Customer'); setCustomerNameError(''); setQtyError('') } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Transaction</DialogTitle>
-            <DialogDescription>Record a customer purchase</DialogDescription>
+            <DialogDescription>Record a customer purchase and update inventory</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Customer Name</Label>
-              <Input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Walk-in Customer" />
+              <Label>Customer Name *</Label>
+              <Input
+                value={customerName}
+                onChange={e => { setCustomerName(e.target.value); setCustomerNameError('') }}
+                placeholder="Walk-in Customer"
+                maxLength={200}
+              />
+              {customerNameError && <p className="text-xs text-destructive">{customerNameError}</p>}
             </div>
 
             {/* Product Selector */}
             <div className="border border-border rounded-lg p-4 space-y-3">
-              <p className="text-sm font-medium text-foreground">Add Products</p>
+              <p className="text-sm font-medium text-foreground">Add Products to Cart</p>
               <div className="flex gap-2">
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                <Select value={selectedProductId} onValueChange={id => { setSelectedProductId(id); setQtyError('') }}>
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Select a product..." />
                   </SelectTrigger>
@@ -190,18 +235,22 @@ export default function TransactionsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  type="number"
-                  min="1"
-                  value={qty}
-                  onChange={e => setQty(parseInt(e.target.value) || 1)}
-                  className="w-24"
-                  placeholder="Qty"
-                />
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min="1"
+                    max="999999"
+                    value={qty}
+                    onChange={e => { setQty(parseInt(e.target.value) || 1); setQtyError('') }}
+                    className="w-24"
+                    placeholder="Qty"
+                  />
+                </div>
                 <Button type="button" onClick={addToCart} disabled={!selectedProductId}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
+              {qtyError && <p className="text-xs text-destructive">{qtyError}</p>}
             </div>
 
             {/* Cart */}
@@ -226,7 +275,7 @@ export default function TransactionsPage() {
                         <TableCell className="font-semibold text-primary">{formatCurrency(item.product.unit_price * item.quantity)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => removeFromCart(item.product.id)}>
-                            ×
+                            <X className="h-4 w-4" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -242,14 +291,16 @@ export default function TransactionsPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setNewTxnOpen(false); setCart([]) }}>Cancel</Button>
+            <Button variant="outline" onClick={() => setNewTxnOpen(false)}>Cancel</Button>
             <Button
               onClick={handleSubmitTransaction}
               disabled={cart.length === 0 || createTransaction.isPending}
               className="gap-2"
             >
               <ShoppingCart className="h-4 w-4" />
-              {createTransaction.isPending ? 'Processing...' : `Record Transaction ${cart.length > 0 ? `(${formatCurrency(cartTotal)})` : ''}`}
+              {createTransaction.isPending
+                ? 'Processing...'
+                : `Record Transaction${cart.length > 0 ? ` (${formatCurrency(cartTotal)})` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>

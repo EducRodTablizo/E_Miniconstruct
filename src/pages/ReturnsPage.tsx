@@ -12,7 +12,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/useToast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { reasonSchema } from '@/lib/validation'
 import type { Return } from '@/types'
+
+function parseReturnError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  if (lower.includes('return more') || lower.includes('quantity')) return 'Return quantity exceeds the original purchase quantity.'
+  if (lower.includes('permission') || lower.includes('policy')) return 'You do not have permission to process returns.'
+  if (lower.includes('not found')) return 'The selected transaction or item could not be found.'
+  if (lower.includes('network') || lower.includes('fetch')) return 'Network error. Please check your connection.'
+  return msg || 'Failed to process return. Please try again.'
+}
 
 export default function ReturnsPage() {
   const [search, setSearch] = useState('')
@@ -20,6 +31,7 @@ export default function ReturnsPage() {
   const [viewReturn, setViewReturn] = useState<Return | null>(null)
   const [selectedTxnId, setSelectedTxnId] = useState('')
   const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState('')
   const [returnItems, setReturnItems] = useState<Record<string, number>>({})
 
   const { data: returns = [], isLoading } = useReturns()
@@ -35,7 +47,11 @@ export default function ReturnsPage() {
   const txnItems = selectedTxn?.transaction_items ?? []
 
   const setReturnQty = (itemId: string, qty: number) => {
-    setReturnItems(prev => ({ ...prev, [itemId]: qty }))
+    const item = txnItems.find(i => i.id === itemId)
+    if (!item) return
+    // Clamp to [0, original quantity]
+    const clamped = Math.max(0, Math.min(Math.floor(qty), item.quantity))
+    setReturnItems(prev => ({ ...prev, [itemId]: clamped }))
   }
 
   const totalRefund = txnItems.reduce((sum, item) => {
@@ -43,8 +59,27 @@ export default function ReturnsPage() {
     return sum + retQty * item.unit_price
   }, 0)
 
+  const resetForm = () => {
+    setSelectedTxnId('')
+    setReason('')
+    setReasonError('')
+    setReturnItems({})
+  }
+
   const handleSubmitReturn = async () => {
-    if (!selectedTxnId) { toast({ title: 'Select a transaction', variant: 'destructive' }); return }
+    // Validate reason
+    const reasonResult = reasonSchema.safeParse(reason)
+    if (!reasonResult.success) {
+      setReasonError(reasonResult.error.issues[0].message)
+      return
+    }
+    setReasonError('')
+
+    if (!selectedTxnId) {
+      toast({ title: 'Select a transaction', description: 'Please select the original transaction to process the return.', variant: 'destructive' })
+      return
+    }
+
     const items = txnItems
       .filter(item => (returnItems[item.id] ?? 0) > 0)
       .map(item => ({
@@ -53,26 +88,36 @@ export default function ReturnsPage() {
         quantity: returnItems[item.id],
         refund_amount: returnItems[item.id] * item.unit_price,
       }))
-    if (items.length === 0) { toast({ title: 'Select at least one item to return', variant: 'destructive' }); return }
+
+    if (items.length === 0) {
+      toast({ title: 'No items selected', description: 'Enter a return quantity for at least one item.', variant: 'destructive' })
+      return
+    }
 
     // Validate quantities
     for (const item of txnItems) {
       const retQty = returnItems[item.id] ?? 0
       if (retQty > item.quantity) {
-        toast({ title: 'Invalid quantity', description: `Cannot return more than purchased for ${item.products?.name}`, variant: 'destructive' })
+        toast({
+          title: 'Invalid Quantity',
+          description: `Cannot return more than ${item.quantity} units of ${item.products?.name ?? 'this item'}.`,
+          variant: 'destructive',
+        })
+        return
+      }
+      if (retQty < 0) {
+        toast({ title: 'Invalid Quantity', description: 'Return quantity cannot be negative.', variant: 'destructive' })
         return
       }
     }
 
     try {
-      await createReturn.mutateAsync({ transactionId: selectedTxnId, reason, items })
-      toast({ title: 'Return processed successfully!', description: `Refund: ${formatCurrency(totalRefund)}` })
+      await createReturn.mutateAsync({ transactionId: selectedTxnId, reason: reasonResult.data, items })
+      toast({ title: 'Return processed!', description: `Refund: ${formatCurrency(totalRefund)}` })
       setNewReturnOpen(false)
-      setSelectedTxnId('')
-      setReason('')
-      setReturnItems({})
-    } catch {
-      toast({ title: 'Error', description: 'Failed to process return.', variant: 'destructive' })
+      resetForm()
+    } catch (err) {
+      toast({ title: 'Return Failed', description: parseReturnError(err), variant: 'destructive' })
     }
   }
 
@@ -152,7 +197,7 @@ export default function ReturnsPage() {
       </Card>
 
       {/* Process Return Dialog */}
-      <Dialog open={newReturnOpen} onOpenChange={open => { setNewReturnOpen(open); if (!open) { setSelectedTxnId(''); setReturnItems({}); setReason('') } }}>
+      <Dialog open={newReturnOpen} onOpenChange={open => { setNewReturnOpen(open); if (!open) resetForm() }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Process Return</DialogTitle>
@@ -161,10 +206,10 @@ export default function ReturnsPage() {
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Select Transaction</Label>
+              <Label>Select Transaction *</Label>
               <Select value={selectedTxnId} onValueChange={id => { setSelectedTxnId(id); setReturnItems({}) }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Search and select transaction..." />
+                  <SelectValue placeholder="Select original transaction..." />
                 </SelectTrigger>
                 <SelectContent>
                   {transactions
@@ -182,6 +227,7 @@ export default function ReturnsPage() {
               <div className="border border-border rounded-lg overflow-hidden">
                 <div className="bg-muted/50 px-4 py-2 border-b border-border">
                   <p className="text-sm font-medium text-foreground">Select Items to Return</p>
+                  <p className="text-xs text-muted-foreground">Enter return quantity for each item (max: original quantity)</p>
                 </div>
                 <Table>
                   <TableHeader>
@@ -207,6 +253,7 @@ export default function ReturnsPage() {
                               value={retQty || ''}
                               onChange={e => setReturnQty(item.id, parseInt(e.target.value) || 0)}
                               className="w-20"
+                              placeholder="0"
                             />
                           </TableCell>
                           <TableCell className={retQty > 0 ? 'font-semibold text-success' : 'text-muted-foreground'}>
@@ -227,13 +274,16 @@ export default function ReturnsPage() {
             )}
 
             <div className="space-y-1.5">
-              <Label>Reason for Return (Optional)</Label>
+              <Label>Reason for Return</Label>
               <Textarea
                 value={reason}
-                onChange={e => setReason(e.target.value)}
-                placeholder="e.g. Damaged goods, wrong item ordered..."
+                onChange={e => { setReason(e.target.value); setReasonError('') }}
+                placeholder="e.g. Damaged goods, wrong item ordered... (max 500 characters)"
                 rows={2}
+                maxLength={500}
               />
+              {reasonError && <p className="text-xs text-destructive">{reasonError}</p>}
+              {reason && <p className="text-xs text-muted-foreground text-right">{reason.length}/500</p>}
             </div>
           </div>
 
