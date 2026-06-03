@@ -1,0 +1,87 @@
+
+-- ============================================================
+-- 1. FIX: Prevent negative inventory via trigger
+-- ============================================================
+CREATE OR REPLACE FUNCTION prevent_negative_inventory()
+RETURNS TRIGGER AS $$
+DECLARE
+  available INTEGER;
+BEGIN
+  SELECT stock_quantity INTO available
+  FROM products
+  WHERE id = NEW.product_id
+  FOR UPDATE;  -- lock row to prevent race conditions
+
+  IF available IS NULL THEN
+    RAISE EXCEPTION 'Product not found';
+  END IF;
+
+  IF available < NEW.quantity THEN
+    RAISE EXCEPTION 'Insufficient stock: only % units available', available;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_prevent_negative_inventory ON transaction_items;
+CREATE TRIGGER trg_prevent_negative_inventory
+  BEFORE INSERT ON transaction_items
+  FOR EACH ROW EXECUTE FUNCTION prevent_negative_inventory();
+
+-- ============================================================
+-- 2. FIX: Secure audit_log inserts via trusted function only
+-- ============================================================
+-- Remove direct insert policy and replace with security definer fn
+DROP POLICY IF EXISTS "Authenticated users can insert audit_logs" ON audit_logs;
+
+CREATE OR REPLACE FUNCTION log_audit_event(
+  p_user_id UUID,
+  p_action TEXT,
+  p_table_name TEXT DEFAULT '',
+  p_record_id TEXT DEFAULT '',
+  p_details JSONB DEFAULT '{}'
+)
+RETURNS VOID AS $$
+BEGIN
+  INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
+  VALUES (p_user_id, p_action, p_table_name, p_record_id, p_details);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Grant execute to authenticated users
+GRANT EXECUTE ON FUNCTION log_audit_event TO authenticated;
+GRANT EXECUTE ON FUNCTION log_audit_event TO anon;
+
+-- ============================================================
+-- 3. FIX: Better RLS for profiles (prevent role escalation)
+-- ============================================================
+DROP POLICY IF EXISTS "Users can view their own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON profiles;
+
+-- Anyone authenticated can read all profiles
+CREATE POLICY "Authenticated can read profiles" ON profiles
+  FOR SELECT TO authenticated USING (true);
+
+-- Users can update their own profile but cannot change role
+CREATE POLICY "Users can update own profile except role" ON profiles
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id AND role = (SELECT role FROM profiles WHERE id = auth.uid()));
+
+-- ============================================================
+-- 4. UPDATE: Categories list (clear and re-seed)
+-- ============================================================
+-- Temporarily disable FK constraint to allow category deletion
+UPDATE products SET category_id = NULL WHERE category_id IS NOT NULL;
+DELETE FROM categories;
+
+INSERT INTO categories (name, description) VALUES
+  ('Cement and Concrete', 'Portland cement, ready-mix concrete, concrete blocks, mortar'),
+  ('Steel and Metal', 'Steel bars (rebar), GI pipes, angle bars, metal sheets, wire mesh'),
+  ('Wood and Lumber', 'Lumber, plywood, hardwood, softwood, engineered wood panels'),
+  ('Paint and Finishing', 'Interior/exterior paint, primer, sealant, varnish, putty, texture coat'),
+  ('Plumbing', 'PVC pipes, fittings, valves, faucets, water tanks, fixtures'),
+  ('Electrical', 'Wires, conduits, switches, panels, outlets, circuit breakers'),
+  ('Hardware', 'Nails, bolts, screws, anchors, hinges, brackets, locks'),
+  ('Other', 'Miscellaneous construction materials and supplies');

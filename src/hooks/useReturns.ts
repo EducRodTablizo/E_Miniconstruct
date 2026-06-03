@@ -34,7 +34,10 @@ export function useCreateReturn() {
       }>
     }) => {
       const { data: { user } } = await supabase.auth.getUser()
-      const { data: rtnNum } = await supabase.rpc('generate_return_number')
+
+      const { data: rtnNum, error: rpcError } = await supabase.rpc('generate_return_number')
+      if (rpcError) throw rpcError
+
       const totalRefund = items.reduce((sum, i) => sum + i.refund_amount, 0)
 
       // Create return record
@@ -43,7 +46,7 @@ export function useCreateReturn() {
         .insert({
           return_number: rtnNum,
           transaction_id: transactionId,
-          reason,
+          reason: reason || '',
           total_refund: totalRefund,
           created_by: user?.id ?? null,
         })
@@ -51,7 +54,7 @@ export function useCreateReturn() {
         .single()
       if (rtnError) throw rtnError
 
-      // Insert return items (triggers auto-restore inventory)
+      // Insert return items — trigger: restore_inventory_on_return
       const returnItems = items.map((i) => ({
         return_id: returnRecord.id,
         product_id: i.product_id,
@@ -69,12 +72,12 @@ export function useCreateReturn() {
         .eq('id', transactionId)
 
       if (user) {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'PROCESS_RETURN',
-          table_name: 'returns',
-          record_id: returnRecord.id,
-          details: { return_number: rtnNum, total_refund: totalRefund },
+        await supabase.rpc('log_audit_event', {
+          p_user_id: user.id,
+          p_action: 'PROCESS_RETURN',
+          p_table_name: 'returns',
+          p_record_id: returnRecord.id,
+          p_details: { return_number: rtnNum, total_refund: totalRefund },
         })
       }
 
