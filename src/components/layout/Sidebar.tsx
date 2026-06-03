@@ -24,11 +24,10 @@ const ownerOnlyNavItems = [
   { to: '/audit-logs', icon: ClipboardList, label: 'Audit Logs' },
 ]
 
-function NavLinks({ isOwner, onNavigate }: { isOwner: boolean; onNavigate: () => void }) {
-  const allItems = isOwner ? [...staffNavItems, ...ownerOnlyNavItems] : staffNavItems
+function NavLinks({ isPrivileged, onNavigate }: { isPrivileged: boolean; onNavigate: () => void }) {
   return (
     <nav className="flex-1 px-3 py-4 space-y-1">
-      {isOwner && (
+      {isPrivileged && (
         <p className="px-3 py-1 text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mb-1">
           Navigation
         </p>
@@ -52,7 +51,7 @@ function NavLinks({ isOwner, onNavigate }: { isOwner: boolean; onNavigate: () =>
         </NavLink>
       ))}
 
-      {isOwner && (
+      {isPrivileged && (
         <>
           <p className="px-3 py-1 text-xs font-semibold text-sidebar-foreground/40 uppercase tracking-wider mt-3 mb-1">
             Administration
@@ -77,9 +76,6 @@ function NavLinks({ isOwner, onNavigate }: { isOwner: boolean; onNavigate: () =>
           ))}
         </>
       )}
-
-      {/* Keep allItems reference to avoid unused var */}
-      {allItems.length === 0 && null}
     </nav>
   )
 }
@@ -87,7 +83,7 @@ function NavLinks({ isOwner, onNavigate }: { isOwner: boolean; onNavigate: () =>
 export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { signOut, profile } = useAuth()
-  const { isOwner } = useRBAC()
+  const { isOwner, isAdmin, isPrivileged } = useRBAC()
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -133,7 +129,7 @@ export function Sidebar() {
           </div>
         </div>
 
-        <NavLinks isOwner={isOwner} onNavigate={() => setMobileOpen(false)} />
+        <NavLinks isPrivileged={isPrivileged} onNavigate={() => setMobileOpen(false)} />
 
         {/* User & Logout */}
         <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
@@ -149,6 +145,8 @@ export function Sidebar() {
                 >
                   {isOwner ? (
                     <><Shield className="h-2.5 w-2.5 mr-1" />Owner</>
+                  ) : isAdmin ? (
+                    <><Shield className="h-2.5 w-2.5 mr-1" />Admin</>
                   ) : 'Staff'}
                 </Badge>
               )}
