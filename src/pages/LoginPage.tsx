@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { HardHat, Eye, EyeOff, LogIn, UserPlus, Check, X } from 'lucide-react'
+import { HardHat, Eye, EyeOff, LogIn, UserPlus, Check, X, Mail } from 'lucide-react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,13 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/hooks/useToast'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 const passwordRules = [
   { label: 'At least 8 characters', test: (p: string) => p.length >= 8 },
@@ -29,13 +36,13 @@ const strongPassword = z.string()
   .regex(/[^A-Za-z0-9]/, 'At least one special character required')
 
 const loginSchema = z.object({
-  email: z.string().email('Enter a valid email address'),
+  email: z.string().email('Enter a valid email address'), // Requirement 7: Built-in validation rule
   password: z.string().min(1, 'Password is required'),
 })
 
 const signupSchema = z.object({
   fullName: z.string().min(2, 'Full name must be at least 2 characters'),
-  email: z.string().email('Enter a valid email address'),
+  email: z.string().email('Enter a valid email address'), // Requirement 7: Built-in validation rule
   password: strongPassword,
   confirmPassword: z.string(),
 }).refine(d => d.password === d.confirmPassword, {
@@ -69,6 +76,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isModalOpen, setIsModalOpen] = useState(false) // Requirement 2: Control states for signup modal
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -76,12 +84,43 @@ export default function LoginPage() {
   const signupForm = useForm<SignupForm>({ resolver: zodResolver(signupSchema) })
   const watchedPassword = signupForm.watch('password') ?? ''
 
+  // Requirements 3 & 4: Catch the callback parameter hash upon landing back onto page
+  useEffect(() => {
+    const handleAuthRedirect = async () => {
+      const hash = window.location.hash
+      
+      // Supabase appends access token confirmations or error messages to the window location string
+      if (hash.includes('access_token=') || hash.includes('type=signup')) {
+        // Run a state clean-out or refresh session validation check
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (session?.user?.confirmed_at) {
+          toast({ 
+            title: 'Success!', 
+            description: 'Account created successfully. You may now log in.',
+            variant: 'default'
+          })
+          // Clean hash tracking elements from the address bar cleanly
+          window.history.replaceState(null, '', window.location.pathname)
+        }
+      } else if (hash.includes('error_description=')) {
+        // Capture systemic mapping issues (e.g. broken or expired links)
+        const params = new URLSearchParams(hash.replace('#', '?'))
+        const errorMsg = params.get('error_description') || 'Verification token invalid or expired.'
+        toast({ title: 'Verification Failed', description: errorMsg, variant: 'destructive' })
+        window.history.replaceState(null, '', window.location.pathname)
+      }
+    }
+
+    handleAuthRedirect()
+  }, [])
+
   const onLogin = async (data: LoginForm) => {
     setIsLoading(true)
     const { error } = await signIn(data.email, data.password)
     setIsLoading(false)
     if (error) {
-      toast({ title: 'Login Failed', description: 'Invalid email or password.', variant: 'destructive' })
+      toast({ title: 'Login Failed', description: error.message, variant: 'destructive' })
     } else {
       toast({ title: 'Welcome back!', description: 'Logged in successfully.' })
       navigate('/dashboard')
@@ -95,14 +134,25 @@ export default function LoginPage() {
       password: data.password,
       options: {
         data: { full_name: data.fullName },
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: `${window.location.origin}/`, // Requirement 3: Tells Supabase where to redirect back
       },
     })
     setIsLoading(false)
+    
     if (error) {
-      toast({ title: 'Registration Failed', description: error.message, variant: 'destructive' })
+      // Requirement 6: Check database uniqueness collision messages or status returns
+      if (error.message.toLowerCase().includes('already exists') || error.status === 422) {
+        toast({ 
+          title: 'Registration Failed', 
+          description: 'An account with this email address already exists.', 
+          variant: 'destructive' 
+        })
+      } else {
+        toast({ title: 'Registration Failed', description: error.message, variant: 'destructive' })
+      }
     } else {
-      toast({ title: 'Account Created!', description: 'You can now log in with your credentials.' })
+      // Requirement 2: Open the success layout modal upon complete dispatch
+      setIsModalOpen(true)
       signupForm.reset()
     }
   }
@@ -233,6 +283,26 @@ export default function LoginPage() {
           MiniConstruct v1.0 &mdash; Secure Inventory Management
         </p>
       </div>
+
+      {/* Requirement 2: Context Informational Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader className="flex flex-col items-center justify-center text-center pt-4">
+            <div className="p-3 bg-primary/10 text-primary rounded-full mb-2">
+              <Mail className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl">Verify your email address</DialogTitle>
+            <DialogDescription className="text-center pt-2">
+              A verification email has been sent to your email address. Please check your inbox and click the verification link to activate your account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center pb-2">
+            <Button onClick={() => setIsModalOpen(false)} className="w-full sm:w-auto px-8">
+              Understood
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
