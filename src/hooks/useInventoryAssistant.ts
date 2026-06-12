@@ -1,6 +1,10 @@
 import { useState, useRef, useCallback } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { supabase } from '@/integrations/supabase/client'
+import {
+  supabase,
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+} from '@/integrations/supabase/client'
 
 export interface AIMessage {
   role: 'user' | 'assistant'
@@ -45,16 +49,16 @@ export function useInventoryAssistant() {
     setError(null)
 
     // Access public properties from supabase-js client
-    const supabaseUrl = (supabase as { supabaseUrl: string }).supabaseUrl || ''
-    const supabaseKey = (supabase as { supabaseKey: string }).supabaseKey || ''
+    //const supabaseUrl = (supabase as { supabaseUrl: string }).supabaseUrl || ''
+    // const supabaseKey = (supabase as { supabaseKey: string }).supabaseKey || ''
 
     try {
-      await fetchEventSource(`${supabaseUrl}/functions/v1/inventory-assistant`, {
+      await fetchEventSource(`${SUPABASE_URL}/functions/v1/inventory-assistant`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
-          'apikey': supabaseKey,
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
           'X-Session-ID': sessionIdRef.current,
         },
         body: JSON.stringify({ message: content }),
