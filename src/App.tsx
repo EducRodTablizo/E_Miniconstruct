@@ -9,11 +9,12 @@ import DashboardPage from '@/pages/DashboardPage'
 import InventoryPage from '@/pages/InventoryPage'
 import TransactionsPage from '@/pages/TransactionsPage'
 import ReturnsPage from '@/pages/ReturnsPage'
-import ForecastPage from '@/pages/ForecastPage'
 import AuditLogsPage from '@/pages/AuditLogsPage'
 import UserManagementPage from '@/pages/UserManagementPage'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import ResetPasswordPage from '@/pages/ResetPasswordPage'
+import AIAssistantPage from '@/pages/AIAssistantPage'
+import HistoricalReportsPage from '@/pages/HistoricalReportsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,11 +73,12 @@ function AppRoutes() {
         <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><TransactionsPage /></ProtectedRoute>} />
         <Route path="/returns" element={<ProtectedRoute><ReturnsPage /></ProtectedRoute>} />
-        <Route path="/forecast" element={<ProtectedRoute><ForecastPage /></ProtectedRoute>} />
+        <Route path="/ai-assistant" element={<ProtectedRoute><AIAssistantPage /></ProtectedRoute>} />
 
         {/* Owner-only routes */}
         <Route path="/users" element={<OwnerOnlyRoute><UserManagementPage /></OwnerOnlyRoute>} />
         <Route path="/audit-logs" element={<OwnerOnlyRoute><AuditLogsPage /></OwnerOnlyRoute>} />
+        <Route path="/historical-reports" element={<OwnerOnlyRoute><HistoricalReportsPage /></OwnerOnlyRoute>} />
 
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
