@@ -3167,6 +3167,58 @@ export type Database = {
         }
         Relationships: []
       }
+      historical_reports: {
+        Row: {
+          audit_summary: Json | null
+          created_at: string | null
+          generated_by: string | null
+          id: string
+          inventory_changes: Json | null
+          period_end: string
+          period_label: string
+          period_start: string
+          report_type: string
+          total_sales: number
+          total_transactions: number
+          user_activities: Json | null
+        }
+        Insert: {
+          audit_summary?: Json | null
+          created_at?: string | null
+          generated_by?: string | null
+          id?: string
+          inventory_changes?: Json | null
+          period_end: string
+          period_label: string
+          period_start: string
+          report_type: string
+          total_sales?: number
+          total_transactions?: number
+          user_activities?: Json | null
+        }
+        Update: {
+          audit_summary?: Json | null
+          created_at?: string | null
+          generated_by?: string | null
+          id?: string
+          inventory_changes?: Json | null
+          period_end?: string
+          period_label?: string
+          period_start?: string
+          report_type?: string
+          total_sales?: number
+          total_transactions?: number
+          user_activities?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historical_reports_generated_by_fkey"
+            columns: ["generated_by"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           category_id: string | null
