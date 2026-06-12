@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Package, ShoppingCart, AlertTriangle, TrendingUp,
-  ArrowRight, CheckCircle, RotateCcw
+  ArrowRight, CheckCircle, RotateCcw, Bot, CalendarDays
 } from 'lucide-react'
 import { useProducts } from '@/hooks/useProducts'
 import { useTransactions } from '@/hooks/useTransactions'
@@ -11,22 +11,47 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { isToday } from 'date-fns'
+import { isToday, isThisWeek, isThisMonth, isThisYear } from 'date-fns'
+
+type Period = 'today' | 'weekly' | 'monthly' | 'yearly'
+
+const PERIOD_LABELS: Record<Period, string> = {
+  today: 'Today',
+  weekly: 'This Week',
+  monthly: 'This Month',
+  yearly: 'This Year',
+}
+
+function isInPeriod(date: Date, period: Period): boolean {
+  switch (period) {
+    case 'today':   return isToday(date)
+    case 'weekly':  return isThisWeek(date, { weekStartsOn: 1 })
+    case 'monthly': return isThisMonth(date)
+    case 'yearly':  return isThisYear(date)
+  }
+}
 
 function StatsCard({
-  title, value, sub, icon: Icon, color
-}: { title: string; value: string | number; sub?: string; icon: React.ElementType; color: string }) {
+  title, value, sub, icon: Icon, color, highlight = false
+}: {
+  title: string
+  value: string | number
+  sub?: string
+  icon: React.ElementType
+  color: string
+  highlight?: boolean
+}) {
   return (
-    <Card className="relative overflow-hidden">
-      <CardContent className="p-6">
+    <Card className={`relative overflow-hidden transition-all ${highlight ? 'ring-2 ring-primary shadow-md' : ''}`}>
+      <CardContent className="p-5">
         <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground font-medium">{title}</p>
-            <p className="text-2xl font-bold text-foreground">{value}</p>
+          <div className="space-y-1 min-w-0">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{title}</p>
+            <p className="text-xl font-bold text-foreground truncate">{value}</p>
             {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
           </div>
-          <div className={`p-3 rounded-xl ${color}`}>
-            <Icon className="h-5 w-5" />
+          <div className={`p-2.5 rounded-xl shrink-0 ${color}`}>
+            <Icon className="h-4 w-4" />
           </div>
         </div>
       </CardContent>
@@ -35,19 +60,38 @@ function StatsCard({
 }
 
 export default function DashboardPage() {
+  const [period, setPeriod] = useState<Period>('today')
   const { data: products = [] } = useProducts()
   const { data: transactions = [] } = useTransactions()
 
   const stats = useMemo(() => {
     const totalProducts = products.length
-    const lowStock = products.filter(p => p.stock_quantity <= p.reorder_level).length
-    const outOfStock = products.filter(p => p.stock_quantity === 0).length
-    const todaySales = transactions
-      .filter(t => isToday(new Date(t.transaction_date)))
-      .reduce((sum, t) => sum + t.total_amount, 0)
-    const totalTransactions = transactions.length
-    return { totalProducts, lowStock, outOfStock, todaySales, totalTransactions }
-  }, [products, transactions])
+    const lowStock    = products.filter(p => p.stock_quantity <= p.reorder_level).length
+    const outOfStock  = products.filter(p => p.stock_quantity === 0).length
+
+    const sumOf = (p: Period) =>
+      transactions
+        .filter(t => isInPeriod(new Date(t.transaction_date), p))
+        .reduce((s, t) => s + t.total_amount, 0)
+    const countOf = (p: Period) =>
+      transactions.filter(t => isInPeriod(new Date(t.transaction_date), p)).length
+
+    const todaySales   = sumOf('today');   const todayCount   = countOf('today')
+    const weeklySales  = sumOf('weekly');  const weeklyCount  = countOf('weekly')
+    const monthlySales = sumOf('monthly'); const monthlyCount = countOf('monthly')
+    const yearlySales  = sumOf('yearly');  const yearlyCount  = countOf('yearly')
+    const periodCount  = countOf(period)
+
+    return {
+      totalProducts, lowStock, outOfStock,
+      todaySales, todayCount,
+      weeklySales, weeklyCount,
+      monthlySales, monthlyCount,
+      yearlySales, yearlyCount,
+      periodCount,
+      totalTransactions: transactions.length,
+    }
+  }, [products, transactions, period])
 
   const recentTransactions = transactions.slice(0, 8)
   const lowStockProducts = products
@@ -56,20 +100,89 @@ export default function DashboardPage() {
     .slice(0, 6)
 
   const getStatusBadge = (status: string) => {
-    if (status === 'completed') return <Badge variant="success">Completed</Badge>
+    if (status === 'completed')          return <Badge variant="success">Completed</Badge>
     if (status === 'partially_returned') return <Badge variant="warning">Partial Return</Badge>
     return <Badge variant="secondary">Fully Returned</Badge>
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-1">Overview of your construction materials inventory</p>
+      {/* Header + Period Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground text-sm mt-1">Overview of your construction materials inventory</p>
+        </div>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1 self-start sm:self-auto">
+          {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                period === p
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* Sales Stats Row (period-sensitive) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <StatsCard
+          title="Today's Sales"
+          value={formatCurrency(stats.todaySales)}
+          sub={`${stats.todayCount} txns`}
+          icon={TrendingUp}
+          color="bg-success/10 text-success"
+          highlight={period === 'today'}
+        />
+        <StatsCard
+          title="Total Transactions"
+          value={stats.periodCount}
+          sub={PERIOD_LABELS[period]}
+          icon={ShoppingCart}
+          color="bg-accent text-accent-foreground"
+        />
+        <StatsCard
+          title="Daily Sales"
+          value={formatCurrency(stats.todaySales)}
+          sub="Today only"
+          icon={CalendarDays}
+          color="bg-primary/10 text-primary"
+          highlight={period === 'today'}
+        />
+        <StatsCard
+          title="Weekly Sales"
+          value={formatCurrency(stats.weeklySales)}
+          sub={`${stats.weeklyCount} txns`}
+          icon={CalendarDays}
+          color="bg-warning/10 text-warning"
+          highlight={period === 'weekly'}
+        />
+        <StatsCard
+          title="Monthly Sales"
+          value={formatCurrency(stats.monthlySales)}
+          sub={`${stats.monthlyCount} txns`}
+          icon={CalendarDays}
+          color="bg-destructive/10 text-destructive"
+          highlight={period === 'monthly'}
+        />
+        <StatsCard
+          title="Yearly Sales"
+          value={formatCurrency(stats.yearlySales)}
+          sub={`${stats.yearlyCount} txns`}
+          icon={TrendingUp}
+          color="bg-primary/10 text-primary"
+          highlight={period === 'yearly'}
+        />
+      </div>
+
+      {/* Inventory Stats Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <StatsCard
           title="Total Products"
           value={stats.totalProducts}
@@ -83,20 +196,6 @@ export default function DashboardPage() {
           sub={stats.outOfStock > 0 ? `${stats.outOfStock} out of stock` : 'Monitor these items'}
           icon={AlertTriangle}
           color="bg-warning/10 text-warning"
-        />
-        <StatsCard
-          title="Today's Sales"
-          value={formatCurrency(stats.todaySales)}
-          sub="Total revenue today"
-          icon={TrendingUp}
-          color="bg-success/10 text-success"
-        />
-        <StatsCard
-          title="Total Transactions"
-          value={stats.totalTransactions}
-          sub="All time"
-          icon={ShoppingCart}
-          color="bg-accent text-accent-foreground"
         />
       </div>
 
@@ -219,9 +318,9 @@ export default function DashboardPage() {
               </Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link to="/forecast" className="gap-2">
-                <TrendingUp className="h-4 w-4" />
-                View Forecast
+              <Link to="/ai-assistant" className="gap-2">
+                <Bot className="h-4 w-4" />
+                Ask AI Assistant
               </Link>
             </Button>
           </div>
