@@ -74,12 +74,12 @@ function AppRoutes() {
         <Route path="/transactions" element={<ProtectedRoute><TransactionsPage /></ProtectedRoute>} />
         <Route path="/returns" element={<ProtectedRoute><ReturnsPage /></ProtectedRoute>} />
         <Route path="/ai-assistant" element={<ProtectedRoute><AIAssistantPage /></ProtectedRoute>} />
-
+/*
         {/* Owner-only routes */}
-        <Route path="/users" element={<OwnerOnlyRoute><UserManagementPage /></OwnerOnlyRoute>} />
-        <Route path="/audit-logs" element={<OwnerOnlyRoute><AuditLogsPage /></OwnerOnlyRoute>} />
-        <Route path="/historical-reports" element={<OwnerOnlyRoute><HistoricalReportsPage /></OwnerOnlyRoute>} />
-
+        <Route path="/users" element={<ProtectedRoute><UserManagementPage /></ProtectedRoute>} />
+        <Route path="/audit-logs" element={<ProtectedRoute><AuditLogsPage /></ProtectedRoute>} />
+        <Route path="/historical-reports" element={<ProtectedRoute><HistoricalReportsPage /></ProtectedRoute>} />
+*/
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
