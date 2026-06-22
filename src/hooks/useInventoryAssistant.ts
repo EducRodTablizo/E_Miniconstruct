@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import {
   supabase,
@@ -10,6 +10,13 @@ export interface AIMessage {
   role: 'user' | 'assistant'
   content: string
   isStreaming?: boolean
+}
+
+export interface AIChatSession {
+  id: string
+  title: string
+  messages: AIMessage[]
+  created_at: string
 }
 
 const FALLBACK_MESSAGES: Record<string, string> = {
@@ -28,11 +35,85 @@ function getErrMsg(code: string, backendMsg: string): string {
 }
 
 export function useInventoryAssistant() {
+  const [chats, setChats] = useState<AIChatSession[]>([])
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  const currentChatIdRef = useRef<string | null>(null)
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const sessionIdRef = useRef(crypto.randomUUID())
+
+  // Fetch all chats for the current user
+  const fetchChats = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('ai_chats')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+
+      if (error) throw error
+      setChats(data as AIChatSession[])
+    } catch (err) {
+      console.error('Error fetching chats:', err)
+    }
+  }, [])
+
+  // Load chats on mount
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchChats()
+  }, [fetchChats])
+
+  // Delete a chat session
+  const deleteChat = useCallback(async (chatId: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_chats')
+        .delete()
+        .eq('id', chatId)
+
+      if (error) throw error
+
+      setChats(prev => prev.filter(c => c.id !== chatId))
+      if (currentChatIdRef.current === chatId) {
+        setCurrentChatId(null)
+        currentChatIdRef.current = null
+        setMessages([])
+      }
+    } catch (err) {
+      console.error('Error deleting chat:', err)
+    }
+  }, [])
+
+  // Load a specific chat session
+  const loadChat = useCallback(async (chatId: string) => {
+    try {
+      abortRef.current?.abort()
+      setIsLoading(false)
+      setError(null)
+
+      const { data, error } = await supabase
+        .from('ai_chats')
+        .select('*')
+        .eq('id', chatId)
+        .maybeSingle()
+
+      if (error) throw error
+      if (data) {
+        setCurrentChatId(data.id)
+        currentChatIdRef.current = data.id
+        setMessages(data.messages as AIMessage[])
+        sessionIdRef.current = crypto.randomUUID()
+      }
+    } catch (err) {
+      console.error('Error loading chat:', err)
+    }
+  }, [])
 
   const sendMessage = useCallback(async (content: string) => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -48,11 +129,54 @@ export function useInventoryAssistant() {
     setIsLoading(true)
     setError(null)
 
-    // Access public properties from supabase-js client
-    //const supabaseUrl = (supabase as { supabaseUrl: string }).supabaseUrl || ''
-    // const supabaseKey = (supabase as { supabaseKey: string }).supabaseKey || ''
+    // Helper to save/update chat in DB
+    const saveChatToDB = async (msgs: AIMessage[]) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        const activeId = currentChatIdRef.current
+
+        if (activeId) {
+          // Update existing chat
+          await supabase
+            .from('ai_chats')
+            .update({
+              messages: msgs,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', activeId)
+          
+          setChats(prev => prev.map(c => c.id === activeId ? { ...c, messages: msgs } : c))
+        } else {
+          // Create new chat
+          const title = content.length > 40 ? content.slice(0, 40) + '...' : content
+          const { data, error } = await supabase
+            .from('ai_chats')
+            .insert({
+              user_id: user.id,
+              title,
+              messages: msgs,
+            })
+            .select()
+            .single()
+
+          if (error) throw error
+          if (data) {
+            setCurrentChatId(data.id)
+            currentChatIdRef.current = data.id
+            setChats(prev => [data as AIChatSession, ...prev])
+          }
+        }
+      } catch (err) {
+        console.error('Error saving chat to DB:', err)
+      }
+    }
 
     try {
+      let accumulatedContent = ''
+      let hasFinished = false
+
       await fetchEventSource(`${SUPABASE_URL}/functions/v1/inventory-assistant`, {
         method: 'POST',
         headers: {
@@ -64,7 +188,6 @@ export function useInventoryAssistant() {
         body: JSON.stringify({ message: content }),
         signal: abortRef.current.signal,
 
-        // LEVEL 0 — Connection error detection
         async onopen(response) {
           const ct = response.headers.get('content-type')
           if (!response.ok) {
@@ -88,15 +211,20 @@ export function useInventoryAssistant() {
           }
         },
 
-        // LEVEL 1 — Stream event handling (openai_chat_completions)
         onmessage(event) {
           if (!event.data) return
           if (event.data === '[DONE]') {
+            if (hasFinished) return
+            hasFinished = true
             setMessages(prev => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') last.isStreaming = false
-              return updated
+              const last = prev[prev.length - 1]
+              if (last?.role === 'assistant') {
+                const updated = prev.slice(0, -1)
+                const finalMsgs = [...updated, { ...last, content: accumulatedContent, isStreaming: false }]
+                saveChatToDB(finalMsgs)
+                return finalMsgs
+              }
+              return prev
             })
             setIsLoading(false)
             return
@@ -105,7 +233,6 @@ export function useInventoryAssistant() {
           try {
             const data = JSON.parse(event.data)
 
-            // Error in stream
             if (data.error) {
               setError(getErrMsg(data.error?.type || 'api_error', data.error?.message || ''))
               setMessages(prev => prev.slice(0, -1))
@@ -117,22 +244,29 @@ export function useInventoryAssistant() {
             if (!choice) return
 
             if (choice.delta?.content) {
+              accumulatedContent += choice.delta.content
               setMessages(prev => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
+                const last = prev[prev.length - 1]
                 if (last?.role === 'assistant') {
-                  last.content = (last.content || '') + choice.delta.content
+                  const updated = prev.slice(0, -1)
+                  return [...updated, { ...last, content: accumulatedContent }]
                 }
-                return [...updated]
+                return prev
               })
             }
 
             if (choice.finish_reason) {
+              if (hasFinished) return
+              hasFinished = true
               setMessages(prev => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') last.isStreaming = false
-                return [...updated]
+                const last = prev[prev.length - 1]
+                if (last?.role === 'assistant') {
+                  const updated = prev.slice(0, -1)
+                  const finalMsgs = [...updated, { ...last, content: accumulatedContent, isStreaming: false }]
+                  saveChatToDB(finalMsgs)
+                  return finalMsgs
+                }
+                return prev
               })
               setIsLoading(false)
             }
@@ -141,7 +275,6 @@ export function useInventoryAssistant() {
           }
         },
 
-        // LEVEL 2 — Network errors
         onerror(err) { throw err },
       })
     } catch (err: unknown) {
@@ -162,9 +295,21 @@ export function useInventoryAssistant() {
     abortRef.current?.abort()
     sessionIdRef.current = crypto.randomUUID()
     setMessages([])
+    setCurrentChatId(null)
+    currentChatIdRef.current = null
     setError(null)
     setIsLoading(false)
   }, [])
 
-  return { messages, isLoading, error, sendMessage, resetChat }
+  return {
+    chats,
+    currentChatId,
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    resetChat,
+    deleteChat,
+    loadChat,
+  }
 }

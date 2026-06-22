@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, RotateCcw, Bot, Loader2, User, Sparkles } from 'lucide-react'
+import { Send, Bot, Loader2, User, Sparkles, MessageSquare, Trash2, Plus, Menu, X } from 'lucide-react'
 import { useInventoryAssistant } from '@/hooks/useInventoryAssistant'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,8 +16,20 @@ const SUGGESTED_QUERIES = [
 ]
 
 export default function AIAssistantPage() {
-  const { messages, isLoading, error, sendMessage, resetChat } = useInventoryAssistant()
+  const {
+    chats,
+    currentChatId,
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    resetChat,
+    deleteChat,
+    loadChat,
+  } = useInventoryAssistant()
+
   const [input, setInput] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(true) // Desktop default open
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -34,23 +46,97 @@ export default function AIAssistantPage() {
     <div className="flex flex-col h-[calc(100vh-8rem)] animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">AI Inventory Assistant</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Ask natural-language questions about inventory, sales, and stock levels
-          </p>
-        </div>
-        {messages.length > 0 && (
-          <Button variant="outline" size="sm" className="gap-2" onClick={resetChat}>
-            <RotateCcw className="h-4 w-4" />
-            New Chat
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setHistoryOpen(!historyOpen)}
+            title="Toggle Chat History"
+          >
+            <Menu className="h-4 w-4" />
           </Button>
-        )}
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">AI Inventory Assistant</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              Ask natural-language questions about inventory, sales, and stock levels
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="gap-2" onClick={resetChat}>
+          <Plus className="h-4 w-4" />
+          New Chat
+        </Button>
       </div>
 
       {/* Chat Container */}
-      <Card className="flex-1 flex flex-col overflow-hidden">
-        <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+      <Card className="flex-1 flex overflow-hidden relative">
+        {/* Chat History Sidebar */}
+        <div
+          className={cn(
+            'absolute md:relative inset-y-0 left-0 z-30 w-64 bg-muted/30 border-r border-border flex flex-col transition-transform duration-300 shrink-0',
+            historyOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-0 md:border-r-0 overflow-hidden'
+          )}
+        >
+          {/* Sidebar Header */}
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <span className="font-semibold text-sm text-foreground flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Chat History
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 md:hidden"
+              onClick={() => setHistoryOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Sidebar List */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {chats.length === 0 ? (
+              <div className="py-8 text-center text-xs text-muted-foreground">
+                No past chats yet
+              </div>
+            ) : (
+              chats.map(chat => (
+                <div
+                  key={chat.id}
+                  className={cn(
+                    'group flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors cursor-pointer',
+                    chat.id === currentChatId
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  )}
+                  onClick={() => {
+                    loadChat(chat.id)
+                    // Close sidebar on mobile after selection
+                    if (window.innerWidth < 768) {
+                      setHistoryOpen(false)
+                    }
+                  }}
+                >
+                  <span className="truncate flex-1 pr-2">{chat.title}</span>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      deleteChat(chat.id)
+                    }}
+                    className="opacity-0 group-hover:opacity-100 hover:text-destructive p-1 rounded transition-opacity shrink-0"
+                    title="Delete Chat"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Main Chat Area */}
+        <CardContent className="flex-1 flex flex-col p-0 overflow-hidden bg-background">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto">
             {messages.length === 0 ? (
