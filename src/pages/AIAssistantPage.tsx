@@ -50,11 +50,14 @@ export default function AIAssistantPage() {
           <Button
             variant="outline"
             size="icon"
-            className="md:hidden"
             onClick={() => setHistoryOpen(!historyOpen)}
             title="Toggle Chat History"
+            className={cn(
+              "transition-colors shrink-0",
+              historyOpen && "bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 hover:text-primary"
+            )}
           >
-            <Menu className="h-4 w-4" />
+            <MessageSquare className="h-4 w-4" />
           </Button>
           <div>
             <h1 className="text-2xl font-bold text-foreground">AI Inventory Assistant</h1>
