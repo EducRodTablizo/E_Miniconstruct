@@ -66,15 +66,15 @@ export default function DashboardPage() {
 
   const stats = useMemo(() => {
     const totalProducts = products.length
-    const lowStock    = products.filter(p => p.stock_quantity <= p.reorder_level).length
-    const outOfStock  = products.filter(p => p.stock_quantity === 0).length
+    const lowStock    = products.filter((p: any) => p.stock_quantity <= p.reorder_level).length
+    const outOfStock  = products.filter((p: any) => p.stock_quantity === 0).length
 
     const sumOf = (p: Period) =>
       transactions
-        .filter(t => isInPeriod(new Date(t.transaction_date), p))
-        .reduce((s, t) => s + t.total_amount, 0)
+        .filter((t: any) => isInPeriod(new Date(t.transaction_date), p))
+        .reduce((s: number, t: any) => s + t.total_amount, 0)
     const countOf = (p: Period) =>
-      transactions.filter(t => isInPeriod(new Date(t.transaction_date), p)).length
+      transactions.filter((t: any) => isInPeriod(new Date(t.transaction_date), p)).length
 
     const todaySales   = sumOf('today');   const todayCount   = countOf('today')
     const weeklySales  = sumOf('weekly');  const weeklyCount  = countOf('weekly')
@@ -95,8 +95,8 @@ export default function DashboardPage() {
 
   const recentTransactions = transactions.slice(0, 8)
   const lowStockProducts = products
-    .filter(p => p.stock_quantity <= p.reorder_level)
-    .sort((a, b) => a.stock_quantity - b.stock_quantity)
+    .filter((p: any) => p.stock_quantity <= p.reorder_level)
+    .sort((a: any, b: any) => a.stock_quantity - b.stock_quantity)
     .slice(0, 6)
 
   const getStatusBadge = (status: string) => {
@@ -235,7 +235,7 @@ export default function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentTransactions.map((t) => (
+                    {recentTransactions.map((t: any) => (
                       <TableRow key={t.id}>
                         <TableCell className="font-mono text-xs font-medium text-primary">{t.transaction_number}</TableCell>
                         <TableCell>{t.customer_name}</TableCell>
@@ -275,7 +275,7 @@ export default function DashboardPage() {
                   <p className="text-sm text-muted-foreground">All items well-stocked!</p>
                 </div>
               ) : (
-                lowStockProducts.map((p) => (
+                lowStockProducts.map((p: any) => (
                   <div key={p.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground truncate">{p.name}</p>

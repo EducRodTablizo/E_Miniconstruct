@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Eye, ShoppingCart, X } from 'lucide-react'
+import { Plus, Search, Eye, ShoppingCart, X, Printer } from 'lucide-react'
 import { useTransactions, useCreateTransaction } from '@/hooks/useTransactions'
 import { useProducts } from '@/hooks/useProducts'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,91 @@ function parseTransactionError(err: unknown): string {
     return 'Network error. Please check your connection and try again.'
   }
   return msg || 'Failed to record transaction. Please try again.'
+}
+
+const printReceipt = (txn: any) => {
+  const printWindow = window.open('', '_blank', 'width=600,height=600')
+  if (!printWindow) {
+    toast({ title: 'Print blocked', description: 'Please allow popups to print receipts.', variant: 'destructive' })
+    return
+  }
+
+  const itemsHTML = (txn.transaction_items ?? []).map((item: any) => `
+    <tr>
+      <td style="padding: 4px 0; text-align: left; max-width: 150px; word-break: break-all;">${item.products?.name ?? '—'}</td>
+      <td style="padding: 4px 0; text-align: center;">${item.quantity} ${item.products?.unit ?? ''}</td>
+      <td style="padding: 4px 0; text-align: right;">${item.unit_price.toFixed(2)}</td>
+      <td style="padding: 4px 0; text-align: right;">${item.subtotal.toFixed(2)}</td>
+    </tr>
+  `).join('')
+
+  const dateStr = new Date(txn.transaction_date).toLocaleString()
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt ${txn.transaction_number}</title>
+        <style>
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            color: #000;
+            width: 80mm;
+            max-width: 80mm;
+            margin: 0 auto;
+            padding: 10px;
+          }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          table { width: 100%; border-collapse: collapse; }
+          th { border-bottom: 1px solid #000; padding: 4px 0; text-align: left; }
+        </style>
+      </head>
+      <body>
+        <h2 class="text-center" style="margin: 0 0 5px 0;">MINICONSTRUCT</h2>
+        <p class="text-center" style="margin: 0; font-size: 10px;">Construction Inventory & POS System</p>
+        <div class="divider"></div>
+        <p style="margin: 3px 0;"><strong>Receipt #:</strong> ${txn.transaction_number}</p>
+        <p style="margin: 3px 0;"><strong>Date:</strong> ${dateStr}</p>
+        <p style="margin: 3px 0;"><strong>Customer:</strong> ${txn.customer_name}</p>
+        <p style="margin: 3px 0;"><strong>Status:</strong> ${txn.status.toUpperCase()}</p>
+        <div class="divider"></div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 45%;">Item</th>
+              <th style="width: 15%; text-align: center;">Qty</th>
+              <th style="width: 20%; text-align: right;">Price</th>
+              <th style="width: 20%; text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHTML}
+          </tbody>
+        </table>
+        <div class="divider"></div>
+        <table style="font-weight: bold;">
+          <tr>
+            <td style="padding: 4px 0;">GRAND TOTAL:</td>
+            <td style="padding: 4px 0;" class="text-right">PHP ${txn.total_amount.toFixed(2)}</td>
+          </tr>
+        </table>
+        <div class="divider"></div>
+        <p class="text-center" style="margin: 15px 0 0 0; font-size: 10px;">Thank you for your purchase!</p>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  setTimeout(() => {
+    printWindow.print()
+    printWindow.close()
+  }, 300)
 }
 
 export default function TransactionsPage() {
@@ -186,10 +271,13 @@ export default function TransactionsPage() {
                     <TableCell className="text-muted-foreground">{t.transaction_items?.length ?? 0} items</TableCell>
                     <TableCell className="font-semibold">{formatCurrency(t.total_amount)}</TableCell>
                     <TableCell><StatusBadge status={t.status} /></TableCell>
-                    <TableCell>
-                      <div className="flex justify-end">
-                        <Button variant="ghost" size="icon-sm" onClick={() => setViewTxn(t)}>
+                     <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="icon-sm" onClick={() => setViewTxn(t)} title="View Details">
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" className="text-primary hover:text-primary hover:bg-primary/10" onClick={() => printReceipt(t)} title="Print Receipt">
+                          <Printer className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -363,7 +451,12 @@ export default function TransactionsPage() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">Items Purchased</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-foreground">Items Purchased</p>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => printReceipt(viewTxn)}>
+                    <Printer className="h-3.5 w-3.5" />Print Receipt
+                  </Button>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
