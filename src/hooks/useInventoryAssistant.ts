@@ -5,6 +5,7 @@ import {
   SUPABASE_URL,
   SUPABASE_PUBLISHABLE_KEY
 } from '@/integrations/supabase/client'
+import { useAuth } from './useAuth'
 
 export interface AIMessage {
   role: 'user' | 'assistant'
@@ -35,6 +36,7 @@ function getErrMsg(code: string, backendMsg: string): string {
 }
 
 export function useInventoryAssistant() {
+  const { user } = useAuth()
   const [chats, setChats] = useState<AIChatSession[]>([])
   const [currentChatId, setCurrentChatId] = useState<string | null>(null)
   const currentChatIdRef = useRef<string | null>(null)
@@ -43,13 +45,16 @@ export function useInventoryAssistant() {
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const sessionIdRef = useRef(crypto.randomUUID())
+  const messagesRef = useRef<AIMessage[]>([])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   // Fetch all chats for the current user
   const fetchChats = useCallback(async () => {
+    if (!user) return
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
       const { data, error } = await supabase
         .from('ai_chats')
         .select('*')
@@ -57,11 +62,11 @@ export function useInventoryAssistant() {
         .order('updated_at', { ascending: false })
 
       if (error) throw error
-      setChats(data as AIChatSession[])
+      setChats(data as unknown as AIChatSession[])
     } catch (err) {
       console.error('Error fetching chats:', err)
     }
-  }, [])
+  }, [user])
 
   // Load chats on mount
   useEffect(() => {
@@ -107,7 +112,7 @@ export function useInventoryAssistant() {
       if (data) {
         setCurrentChatId(data.id)
         currentChatIdRef.current = data.id
-        setMessages(data.messages as AIMessage[])
+        setMessages(data.messages as unknown as AIMessage[])
         sessionIdRef.current = crypto.randomUUID()
       }
     } catch (err) {
@@ -125,7 +130,11 @@ export function useInventoryAssistant() {
     const userMsg: AIMessage = { role: 'user', content }
     const asstMsg: AIMessage = { role: 'assistant', content: '', isStreaming: true }
 
-    setMessages(prev => [...prev, userMsg, asstMsg])
+    setMessages(prev => {
+      const next = [...prev, userMsg, asstMsg]
+      messagesRef.current = next
+      return next
+    })
     setIsLoading(true)
     setError(null)
 
@@ -142,7 +151,7 @@ export function useInventoryAssistant() {
           await supabase
             .from('ai_chats')
             .update({
-              messages: msgs,
+              messages: msgs as any,
               updated_at: new Date().toISOString()
             })
             .eq('id', activeId)
@@ -156,7 +165,7 @@ export function useInventoryAssistant() {
             .insert({
               user_id: user.id,
               title,
-              messages: msgs,
+              messages: msgs as any,
             })
             .select()
             .single()
@@ -165,7 +174,7 @@ export function useInventoryAssistant() {
           if (data) {
             setCurrentChatId(data.id)
             currentChatIdRef.current = data.id
-            setChats(prev => [data as AIChatSession, ...prev])
+            setChats(prev => [data as unknown as AIChatSession, ...prev])
           }
         }
       } catch (err) {
@@ -216,16 +225,15 @@ export function useInventoryAssistant() {
           if (event.data === '[DONE]') {
             if (hasFinished) return
             hasFinished = true
-            setMessages(prev => {
-              const last = prev[prev.length - 1]
-              if (last?.role === 'assistant') {
-                const updated = prev.slice(0, -1)
-                const finalMsgs = [...updated, { ...last, content: accumulatedContent, isStreaming: false }]
-                saveChatToDB(finalMsgs)
-                return finalMsgs
-              }
-              return prev
-            })
+            
+            const finalMsgs = [
+              ...messagesRef.current.slice(0, -1),
+              { role: 'assistant', content: accumulatedContent, isStreaming: false }
+            ] as AIMessage[]
+            
+            setMessages(finalMsgs)
+            messagesRef.current = finalMsgs
+            saveChatToDB(finalMsgs)
             setIsLoading(false)
             return
           }
@@ -235,7 +243,11 @@ export function useInventoryAssistant() {
 
             if (data.error) {
               setError(getErrMsg(data.error?.type || 'api_error', data.error?.message || ''))
-              setMessages(prev => prev.slice(0, -1))
+              setMessages(prev => {
+                const next = prev.slice(0, -1)
+                messagesRef.current = next
+                return next
+              })
               setIsLoading(false)
               return
             }
@@ -249,7 +261,9 @@ export function useInventoryAssistant() {
                 const last = prev[prev.length - 1]
                 if (last?.role === 'assistant') {
                   const updated = prev.slice(0, -1)
-                  return [...updated, { ...last, content: accumulatedContent }]
+                  const next = [...updated, { ...last, content: accumulatedContent }]
+                  messagesRef.current = next
+                  return next
                 }
                 return prev
               })
@@ -258,16 +272,15 @@ export function useInventoryAssistant() {
             if (choice.finish_reason) {
               if (hasFinished) return
               hasFinished = true
-              setMessages(prev => {
-                const last = prev[prev.length - 1]
-                if (last?.role === 'assistant') {
-                  const updated = prev.slice(0, -1)
-                  const finalMsgs = [...updated, { ...last, content: accumulatedContent, isStreaming: false }]
-                  saveChatToDB(finalMsgs)
-                  return finalMsgs
-                }
-                return prev
-              })
+              
+              const finalMsgs = [
+                ...messagesRef.current.slice(0, -1),
+                { role: 'assistant', content: accumulatedContent, isStreaming: false }
+              ] as AIMessage[]
+              
+              setMessages(finalMsgs)
+              messagesRef.current = finalMsgs
+              saveChatToDB(finalMsgs)
               setIsLoading(false)
             }
           } catch {
