@@ -27,6 +27,7 @@ export default function InventoryPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
   const { isPrivileged } = useRBAC()
   const { data: products = [], isLoading } = useProducts()
@@ -316,7 +317,7 @@ export default function InventoryPage() {
                 </div>
 
                 <DialogFooter className="pt-2">
-                  <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Cancel</Button>
+                  <Button type="button" variant="outline" onClick={() => setCancelConfirmOpen(true)}>Cancel</Button>
                   <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending}>
                     {(createProduct.isPending || updateProduct.isPending) ? 'Saving...' : editProduct ? 'Save Changes' : 'Add Product'}
                   </Button>
@@ -340,6 +341,29 @@ export default function InventoryPage() {
                   onClick={handleDelete}
                 >
                   Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Discard Changes?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to cancel? Any unsaved product information will be lost.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>No, Keep Editing</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => {
+                    setCancelConfirmOpen(false)
+                    setModalOpen(false)
+                  }}
+                >
+                  Yes, Discard
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

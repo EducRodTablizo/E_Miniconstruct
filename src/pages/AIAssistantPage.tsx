@@ -4,7 +4,7 @@ import { useInventoryAssistant } from '@/hooks/useInventoryAssistant'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
+import { cn, formatDateShort } from '@/lib/utils'
 
 const SUGGESTED_QUERIES = [
   'Show me all low-stock items',
@@ -108,7 +108,7 @@ export default function AIAssistantPage() {
                 <div
                   key={chat.id}
                   className={cn(
-                    'group flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors cursor-pointer',
+                    'group flex items-start gap-2 rounded-lg px-3 py-2 transition-colors cursor-pointer text-left',
                     chat.id === currentChatId
                       ? 'bg-primary/10 text-primary font-medium'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -121,13 +121,22 @@ export default function AIAssistantPage() {
                     }
                   }}
                 >
-                  <span className="truncate flex-1 pr-2">{chat.title}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-sm text-foreground font-medium group-hover:text-foreground">
+                      {chat.title}
+                    </p>
+                    {chat.created_at && (
+                      <p className="text-xs text-muted-foreground/75 mt-0.5 font-normal">
+                        {formatDateShort(chat.created_at)}
+                      </p>
+                    )}
+                  </div>
                   <button
                     onClick={e => {
                       e.stopPropagation()
                       deleteChat(chat.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 hover:text-destructive p-1 rounded transition-opacity shrink-0"
+                    className="opacity-0 group-hover:opacity-100 hover:text-destructive p-1 rounded transition-opacity shrink-0 mt-0.5"
                     title="Delete Chat"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
