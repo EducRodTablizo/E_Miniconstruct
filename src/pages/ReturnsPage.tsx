@@ -40,23 +40,23 @@ export default function ReturnsPage() {
   const { data: transactions = [] } = useTransactions()
   const createReturn = useCreateReturn()
 
-  const filtered = returns.filter(r =>
+  const filtered = returns.filter((r: any) =>
     r.return_number.toLowerCase().includes(search.toLowerCase()) ||
     (r.transactions?.transaction_number ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const selectedTxn = transactions.find(t => t.id === selectedTxnId)
+  const selectedTxn = transactions.find((t: any) => t.id === selectedTxnId)
   const txnItems = selectedTxn?.transaction_items ?? []
 
   const setReturnQty = (itemId: string, qty: number) => {
-    const item = txnItems.find(i => i.id === itemId)
+    const item = txnItems.find((i: any) => i.id === itemId)
     if (!item) return
     // Clamp to [0, original quantity]
     const clamped = Math.max(0, Math.min(Math.floor(qty), item.quantity))
     setReturnItems(prev => ({ ...prev, [itemId]: clamped }))
   }
 
-  const totalRefund = txnItems.reduce((sum, item) => {
+  const totalRefund = txnItems.reduce((sum: number, item: any) => {
     const retQty = returnItems[item.id] ?? 0
     return sum + retQty * item.unit_price
   }, 0)
@@ -83,8 +83,8 @@ export default function ReturnsPage() {
     }
 
     const items = txnItems
-      .filter(item => (returnItems[item.id] ?? 0) > 0)
-      .map(item => ({
+      .filter((item: any) => (returnItems[item.id] ?? 0) > 0)
+      .map((item: any) => ({
         product_id: item.product_id,
         transaction_item_id: item.id,
         quantity: returnItems[item.id],
@@ -175,7 +175,7 @@ export default function ReturnsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(r => (
+                {filtered.map((r: any) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-mono text-xs font-semibold text-primary">{r.return_number}</TableCell>
                     <TableCell className="font-mono text-xs">{r.transactions?.transaction_number ?? '—'}</TableCell>
@@ -215,8 +215,8 @@ export default function ReturnsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {transactions
-                    .filter(t => t.status !== 'fully_returned')
-                    .map(t => (
+                    .filter((t: any) => t.status !== 'fully_returned')
+                    .map((t: any) => (
                       <SelectItem key={t.id} value={t.id}>
                         {t.transaction_number} — {t.customer_name} ({formatCurrency(t.total_amount)})
                       </SelectItem>
@@ -241,7 +241,7 @@ export default function ReturnsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {txnItems.map(item => {
+                    {txnItems.map((item: any) => {
                       const retQty = returnItems[item.id] ?? 0
                       return (
                         <TableRow key={item.id}>
@@ -366,7 +366,7 @@ export default function ReturnsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {viewReturn.return_items!.map(item => (
+                      {viewReturn.return_items!.map((item: any) => (
                         <TableRow key={item.id}>
                           <TableCell>{item.products?.name ?? '—'}</TableCell>
                           <TableCell>{item.quantity} {item.products?.unit}</TableCell>
