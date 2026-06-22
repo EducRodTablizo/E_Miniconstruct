@@ -54,21 +54,21 @@ export default function TransactionsPage() {
   const { data: products = [] } = useProducts()
   const createTransaction = useCreateTransaction()
 
-  const filtered = transactions.filter(t =>
+  const filtered = transactions.filter((t: any) =>
     t.transaction_number.toLowerCase().includes(search.toLowerCase()) ||
     t.customer_name.toLowerCase().includes(search.toLowerCase())
   )
 
   const addToCart = () => {
     setQtyError('')
-    const product = products.find(p => p.id === selectedProductId)
+    const product = products.find((p: any) => p.id === selectedProductId)
     if (!product) { toast({ title: 'Please select a product', variant: 'destructive' }); return }
 
     const safeQty = Math.floor(qty)
     if (!safeQty || safeQty <= 0) { setQtyError('Quantity must be at least 1'); return }
     if (safeQty > 999999) { setQtyError('Quantity is too large'); return }
 
-    const existingCartItem = cart.find(i => i.product.id === product.id)
+    const existingCartItem = cart.find((i: any) => i.product.id === product.id)
     const alreadyInCart = existingCartItem?.quantity ?? 0
     if (safeQty + alreadyInCart > product.stock_quantity) {
       setQtyError(`Only ${product.stock_quantity - alreadyInCart} more units available`)
@@ -76,7 +76,7 @@ export default function TransactionsPage() {
     }
 
     if (existingCartItem) {
-      setCart(cart.map(i => i.product.id === product.id ? { ...i, quantity: i.quantity + safeQty } : i))
+      setCart(cart.map((i: any) => i.product.id === product.id ? { ...i, quantity: i.quantity + safeQty } : i))
     } else {
       setCart([...cart, { product, quantity: safeQty }])
     }
@@ -84,9 +84,9 @@ export default function TransactionsPage() {
     setQty(1)
   }
 
-  const removeFromCart = (productId: string) => setCart(cart.filter(i => i.product.id !== productId))
+  const removeFromCart = (productId: string) => setCart(cart.filter((i: any) => i.product.id !== productId))
 
-  const cartTotal = cart.reduce((sum, i) => sum + i.product.unit_price * i.quantity, 0)
+  const cartTotal = cart.reduce((sum: number, i: any) => sum + i.product.unit_price * i.quantity, 0)
 
   const handleSubmitTransaction = async () => {
     // Validate customer name
@@ -101,7 +101,7 @@ export default function TransactionsPage() {
 
     // Re-validate cart quantities against current stock (guard against stale data)
     for (const item of cart) {
-      const liveProduct = products.find(p => p.id === item.product.id)
+      const liveProduct = products.find((p: any) => p.id === item.product.id)
       if (liveProduct && item.quantity > liveProduct.stock_quantity) {
         toast({
           title: 'Stock Changed',
@@ -124,7 +124,7 @@ export default function TransactionsPage() {
     }
   }
 
-  const availableProducts = products.filter(p => p.stock_quantity > 0 && !cart.find(i => i.product.id === p.id))
+  const availableProducts = products.filter((p: any) => p.stock_quantity > 0 && !cart.find((i: any) => i.product.id === p.id))
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -178,7 +178,7 @@ export default function TransactionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(t => (
+                {filtered.map((t: any) => (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs font-semibold text-primary">{t.transaction_number}</TableCell>
                     <TableCell>{t.customer_name}</TableCell>
@@ -230,7 +230,7 @@ export default function TransactionsPage() {
                     <SelectValue placeholder="Select a product..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableProducts.map(p => (
+                    {availableProducts.map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name} — {formatCurrency(p.unit_price)}/{p.unit} ({p.stock_quantity} available)
                       </SelectItem>
@@ -269,7 +269,7 @@ export default function TransactionsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cart.map(item => (
+                    {cart.map((item: any) => (
                       <TableRow key={item.product.id}>
                         <TableCell className="font-medium">{item.product.name}</TableCell>
                         <TableCell>{item.quantity} {item.product.unit}</TableCell>
@@ -374,7 +374,7 @@ export default function TransactionsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(viewTxn.transaction_items ?? []).map(item => (
+                    {(viewTxn.transaction_items ?? []).map((item: any) => (
                       <TableRow key={item.id}>
                         <TableCell>{item.products?.name ?? '—'}</TableCell>
                         <TableCell>{item.quantity} {item.products?.unit}</TableCell>

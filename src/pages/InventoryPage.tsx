@@ -41,7 +41,7 @@ export default function InventoryPage() {
     defaultValues: { stock_quantity: 0, reorder_level: 10, unit: 'pcs', unit_price: 0 },
   })
 
-  const filtered = products.filter(p => {
+  const filtered = products.filter((p: any) => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
       (p.description ?? '').toLowerCase().includes(search.toLowerCase())
     const matchCat = categoryFilter === 'all' ||
@@ -151,7 +151,7 @@ export default function InventoryPage() {
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
                   <SelectItem value="__none__">No Category</SelectItem>
-                  {categories.map(c => (
+                  {categories.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -202,7 +202,7 @@ export default function InventoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(p => (
+                {filtered.map((p: any) => (
                   <TableRow key={p.id}>
                     <TableCell>
                       <div>
@@ -277,7 +277,7 @@ export default function InventoryPage() {
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map(c => (
+                        {categories.map((c: any) => (
                           <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                         ))}
                       </SelectContent>
