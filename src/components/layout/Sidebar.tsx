@@ -12,6 +12,17 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from '@/hooks/useToast'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
 const staffNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -201,19 +212,36 @@ export function Sidebar() {
               <p className="text-xs text-sidebar-foreground/40 truncate">{profile?.email ?? ''}</p>
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            title={collapsed ? 'Logout' : undefined}
-            className={cn(
-              'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-              collapsed ? 'w-full justify-center px-0' : 'w-full justify-start gap-3'
-            )}
-            onClick={handleLogout}
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            {!collapsed && 'Logout'}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                title={collapsed ? 'Logout' : undefined}
+                className={cn(
+                  'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                  collapsed ? 'w-full justify-center px-0' : 'w-full justify-start gap-3'
+                )}
+              >
+                <LogOut className="h-4 w-4 shrink-0" />
+                {!collapsed && 'Logout'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirm Logout</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to log out of your session? Any unsaved changes may be lost.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleLogout} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                  Logout
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </aside>
     </>

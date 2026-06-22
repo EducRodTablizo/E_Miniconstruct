@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -33,6 +34,7 @@ export default function ReturnsPage() {
   const [reason, setReason] = useState('')
   const [reasonError, setReasonError] = useState('')
   const [returnItems, setReturnItems] = useState<Record<string, number>>({})
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
   const { data: returns = [], isLoading } = useReturns()
   const { data: transactions = [] } = useTransactions()
@@ -288,7 +290,7 @@ export default function ReturnsPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNewReturnOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>Cancel</Button>
             <Button
               onClick={handleSubmitReturn}
               disabled={createReturn.isPending || totalRefund === 0}
@@ -300,6 +302,30 @@ export default function ReturnsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard Return?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel? Any items selected for return will be discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep Editing</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setCancelConfirmOpen(false)
+                setNewReturnOpen(false)
+                resetForm()
+              }}
+            >
+              Yes, Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* View Return Dialog */}
       <Dialog open={!!viewReturn} onOpenChange={() => setViewReturn(null)}>

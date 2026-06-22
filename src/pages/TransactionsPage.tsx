@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/useToast'
@@ -47,6 +48,7 @@ export default function TransactionsPage() {
   const [selectedProductId, setSelectedProductId] = useState('')
   const [qty, setQty] = useState(1)
   const [qtyError, setQtyError] = useState('')
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
   const { data: transactions = [], isLoading } = useTransactions()
   const { data: products = [] } = useProducts()
@@ -291,7 +293,7 @@ export default function TransactionsPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNewTxnOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>Cancel</Button>
             <Button
               onClick={handleSubmitTransaction}
               disabled={cart.length === 0 || createTransaction.isPending}
@@ -305,6 +307,33 @@ export default function TransactionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard Transaction?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel? Any products added to this transaction will be discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep Editing</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setCancelConfirmOpen(false)
+                setNewTxnOpen(false)
+                setCart([])
+                setCustomerName('Walk-in Customer')
+                setCustomerNameError('')
+                setQtyError('')
+              }}
+            >
+              Yes, Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* View Transaction Dialog */}
       <Dialog open={!!viewTxn} onOpenChange={() => setViewTxn(null)}>
