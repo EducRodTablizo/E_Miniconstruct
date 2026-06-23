@@ -45,6 +45,11 @@ Deno.serve(async (req) => {
       })
     }
 
+    const adminClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+
     const { report_type, period_start, period_end, period_label } = await req.json()
 
     if (!report_type || !period_start || !period_end) {
@@ -61,12 +66,12 @@ Deno.serve(async (req) => {
       { data: transactions },
       { data: auditLogs },
     ] = await Promise.all([
-      callerClient
+      adminClient
         .from('transactions')
         .select('id, transaction_number, customer_name, total_amount, status, created_at')
         .gte('created_at', startISO)
         .lte('created_at', endISO),
-      callerClient
+      adminClient
         .from('audit_logs')
         .select('id, action, table_name, record_id, details, created_at, profiles(full_name)')
         .gte('created_at', startISO)
@@ -104,7 +109,7 @@ Deno.serve(async (req) => {
     }))
 
     // Save the historical report
-    const { data: report, error: insertError } = await callerClient
+    const { data: report, error: insertError } = await adminClient
       .from('historical_reports')
       .insert({
         report_type,
@@ -124,13 +129,17 @@ Deno.serve(async (req) => {
     if (insertError) throw insertError
 
     // Log the report generation
-    callerClient.rpc('log_audit_event', {
-      p_user_id: user.id,
-      p_action: 'GENERATE_REPORT',
-      p_table_name: 'historical_reports',
-      p_record_id: report.id,
-      p_details: { report_type, period_label: report.period_label, total_sales: totalSales, total_transactions: totalTransactions },
-    }).catch(console.error)
+    try {
+      await adminClient.rpc('log_audit_event', {
+        p_user_id: user.id,
+        p_action: 'GENERATE_REPORT',
+        p_table_name: 'historical_reports',
+        p_record_id: report.id,
+        p_details: { report_type, period_label: report.period_label, total_sales: totalSales, total_transactions: totalTransactions },
+      })
+    } catch (rpcError) {
+      console.error('log_audit_event error:', rpcError)
+    }
 
     return new Response(JSON.stringify({ success: true, report }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import {
   FileText, Calendar, Plus, Eye, TrendingUp,
-  Users, Package, ClipboardList, FileBarChart2
+  Users, Package, ClipboardList, FileBarChart2, Trash2
 } from 'lucide-react'
 import {
   format, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
   startOfYear, endOfYear, subDays
 } from 'date-fns'
-import { useHistoricalReports, useGenerateReport, HistoricalReport } from '@/hooks/useHistoricalReports'
+import { useHistoricalReports, useGenerateReport, useDeleteReport, HistoricalReport } from '@/hooks/useHistoricalReports'
 import { useRBAC } from '@/hooks/useRBAC'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from '@/hooks/useToast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
   daily: 'Daily',
@@ -172,13 +173,30 @@ export default function HistoricalReportsPage() {
   const { profile } = useAuth()
   const { data: reports = [], isLoading } = useHistoricalReports()
   const generateReport = useGenerateReport()
+  const deleteReport = useDeleteReport()
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [viewReport, setViewReport] = useState<HistoricalReport | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [reportType, setReportType] = useState('monthly')
   const [startDate, setStartDate] = useState(getDefaultRange('monthly').start)
   const [endDate,   setEndDate]   = useState(getDefaultRange('monthly').end)
   const [periodLabel, setPeriodLabel] = useState(getDefaultRange('monthly').label)
+
+  const handleDelete = async () => {
+    if (!deleteId) return
+    try {
+      await deleteReport.mutateAsync(deleteId)
+      toast({ title: 'Report deleted', description: 'The historical report was deleted.' })
+      setDeleteId(null)
+    } catch (err) {
+      toast({
+        title: 'Failed to delete report',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    }
+  }
 
   if (profile === null) {
     return (
@@ -318,9 +336,12 @@ export default function HistoricalReportsPage() {
                       <TableCell className="text-muted-foreground text-sm">{r.profiles?.full_name ?? '—'}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">{formatDate(r.created_at)}</TableCell>
                       <TableCell>
-                        <div className="flex justify-end">
-                          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setViewReport(r)}>
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground hover:text-foreground" onClick={() => setViewReport(r)}>
                             <Eye className="h-3.5 w-3.5" />View
+                          </Button>
+                          <Button variant="ghost" size="sm" className="gap-1 text-destructive hover:text-destructive/80" onClick={() => setDeleteId(r.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />Delete
                           </Button>
                         </div>
                       </TableCell>
@@ -391,6 +412,27 @@ export default function HistoricalReportsPage() {
 
       {/* View Report Dialog */}
       <ViewReportDialog report={viewReport} onClose={() => setViewReport(null)} />
+
+      {/* Delete Confirmation Alert Dialog */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Historical Report?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this archived report? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDelete}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
