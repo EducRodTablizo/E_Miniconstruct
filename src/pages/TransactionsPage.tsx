@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Eye, ShoppingCart } from 'lucide-react'
+import { Plus, Search, Eye, ShoppingCart, X, Printer } from 'lucide-react'
 import { useTransactions, useCreateTransaction } from '@/hooks/useTransactions'
 import { useProducts } from '@/hooks/useProducts'
 import { Button } from '@/components/ui/button'
@@ -8,10 +8,12 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from '@/hooks/useToast'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { customerNameSchema } from '@/lib/validation'
 import type { CartItem, Transaction } from '@/types'
 
 function StatusBadge({ status }: { status: string }) {
@@ -20,70 +22,194 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">Fully Returned</Badge>
 }
 
+function parseTransactionError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  if (lower.includes('insufficient stock') || lower.includes('insufficient')) {
+    return 'Insufficient stock for one or more items. Please check inventory levels.'
+  }
+  if (lower.includes('not found')) return 'One or more products no longer exist in inventory.'
+  if (lower.includes('permission') || lower.includes('policy') || lower.includes('rls')) {
+    return 'You do not have permission to record transactions.'
+  }
+  if (lower.includes('network') || lower.includes('fetch')) {
+    return 'Network error. Please check your connection and try again.'
+  }
+  return msg || 'Failed to record transaction. Please try again.'
+}
+
+const printReceipt = (txn: any) => {
+  const printWindow = window.open('', '_blank', 'width=600,height=600')
+  if (!printWindow) {
+    toast({ title: 'Print blocked', description: 'Please allow popups to print receipts.', variant: 'destructive' })
+    return
+  }
+
+  const itemsHTML = (txn.transaction_items ?? []).map((item: any) => `
+    <tr>
+      <td style="padding: 4px 0; text-align: left; max-width: 150px; word-break: break-all;">${item.products?.name ?? '—'}</td>
+      <td style="padding: 4px 0; text-align: center;">${item.quantity} ${item.products?.unit ?? ''}</td>
+      <td style="padding: 4px 0; text-align: right;">${item.unit_price.toFixed(2)}</td>
+      <td style="padding: 4px 0; text-align: right;">${item.subtotal.toFixed(2)}</td>
+    </tr>
+  `).join('')
+
+  const dateStr = new Date(txn.transaction_date).toLocaleString()
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt ${txn.transaction_number}</title>
+        <style>
+          @media print {
+            @page { margin: 0; }
+            body { margin: 10mm; }
+          }
+          body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            color: #000;
+            width: 80mm;
+            max-width: 80mm;
+            margin: 0 auto;
+            padding: 10px;
+          }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          table { width: 100%; border-collapse: collapse; }
+          th { border-bottom: 1px solid #000; padding: 4px 0; text-align: left; }
+        </style>
+      </head>
+      <body>
+        <h2 class="text-center" style="margin: 0 0 5px 0;">MINICONSTRUCT</h2>
+        <p class="text-center" style="margin: 0; font-size: 10px;">Construction Inventory & POS System</p>
+        <div class="divider"></div>
+        <p style="margin: 3px 0;"><strong>Receipt #:</strong> ${txn.transaction_number}</p>
+        <p style="margin: 3px 0;"><strong>Date:</strong> ${dateStr}</p>
+        <p style="margin: 3px 0;"><strong>Customer:</strong> ${txn.customer_name}</p>
+        <p style="margin: 3px 0;"><strong>Status:</strong> ${txn.status.toUpperCase()}</p>
+        <div class="divider"></div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 45%;">Item</th>
+              <th style="width: 15%; text-align: center;">Qty</th>
+              <th style="width: 20%; text-align: right;">Price</th>
+              <th style="width: 20%; text-align: right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHTML}
+          </tbody>
+        </table>
+        <div class="divider"></div>
+        <table style="font-weight: bold;">
+          <tr>
+            <td style="padding: 4px 0;">GRAND TOTAL:</td>
+            <td style="padding: 4px 0;" class="text-right">PHP ${txn.total_amount.toFixed(2)}</td>
+          </tr>
+        </table>
+        <div class="divider"></div>
+        <p class="text-center" style="margin: 15px 0 0 0; font-size: 10px;">Thank you for your purchase!</p>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  setTimeout(() => {
+    printWindow.print()
+    printWindow.close()
+  }, 300)
+}
+
 export default function TransactionsPage() {
   const [search, setSearch] = useState('')
   const [newTxnOpen, setNewTxnOpen] = useState(false)
   const [viewTxn, setViewTxn] = useState<Transaction | null>(null)
   const [customerName, setCustomerName] = useState('Walk-in Customer')
+  const [customerNameError, setCustomerNameError] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [selectedProductId, setSelectedProductId] = useState('')
   const [qty, setQty] = useState(1)
+  const [qtyError, setQtyError] = useState('')
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
 
   const { data: transactions = [], isLoading } = useTransactions()
   const { data: products = [] } = useProducts()
   const createTransaction = useCreateTransaction()
 
-  const filtered = transactions.filter(t =>
+  const filtered = transactions.filter((t: any) =>
     t.transaction_number.toLowerCase().includes(search.toLowerCase()) ||
     t.customer_name.toLowerCase().includes(search.toLowerCase())
   )
 
   const addToCart = () => {
-    const product = products.find(p => p.id === selectedProductId)
-    if (!product) return
-    if (qty <= 0) { toast({ title: 'Invalid quantity', variant: 'destructive' }); return }
-    if (qty > product.stock_quantity) {
-      toast({ title: 'Insufficient stock', description: `Only ${product.stock_quantity} ${product.unit} available.`, variant: 'destructive' })
+    setQtyError('')
+    const product = products.find((p: any) => p.id === selectedProductId)
+    if (!product) { toast({ title: 'Please select a product', variant: 'destructive' }); return }
+
+    const safeQty = Math.floor(qty)
+    if (!safeQty || safeQty <= 0) { setQtyError('Quantity must be at least 1'); return }
+    if (safeQty > 999999) { setQtyError('Quantity is too large'); return }
+
+    const existingCartItem = cart.find((i: any) => i.product.id === product.id)
+    const alreadyInCart = existingCartItem?.quantity ?? 0
+    if (safeQty + alreadyInCart > product.stock_quantity) {
+      setQtyError(`Only ${product.stock_quantity - alreadyInCart} more units available`)
       return
     }
-    const existing = cart.findIndex(i => i.product.id === product.id)
-    if (existing >= 0) {
-      const updated = [...cart]
-      const newQty = updated[existing].quantity + qty
-      if (newQty > product.stock_quantity) {
-        toast({ title: 'Insufficient stock', variant: 'destructive' })
-        return
-      }
-      updated[existing].quantity = newQty
-      setCart(updated)
+
+    if (existingCartItem) {
+      setCart(cart.map((i: any) => i.product.id === product.id ? { ...i, quantity: i.quantity + safeQty } : i))
     } else {
-      setCart([...cart, { product, quantity: qty }])
+      setCart([...cart, { product, quantity: safeQty }])
     }
     setSelectedProductId('')
     setQty(1)
   }
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(i => i.product.id !== productId))
-  }
+  const removeFromCart = (productId: string) => setCart(cart.filter((i: any) => i.product.id !== productId))
 
-  const cartTotal = cart.reduce((sum, i) => sum + i.product.unit_price * i.quantity, 0)
+  const cartTotal = cart.reduce((sum: number, i: any) => sum + i.product.unit_price * i.quantity, 0)
 
   const handleSubmitTransaction = async () => {
-    if (cart.length === 0) { toast({ title: 'Cart is empty', variant: 'destructive' }); return }
-    if (!customerName.trim()) { toast({ title: 'Customer name is required', variant: 'destructive' }); return }
+    // Validate customer name
+    const nameResult = customerNameSchema.safeParse(customerName)
+    if (!nameResult.success) {
+      setCustomerNameError(nameResult.error.issues[0].message)
+      return
+    }
+    setCustomerNameError('')
+
+    if (cart.length === 0) { toast({ title: 'Cart is empty', description: 'Add at least one product to the cart.', variant: 'destructive' }); return }
+
+    // Re-validate cart quantities against current stock (guard against stale data)
+    for (const item of cart) {
+      const liveProduct = products.find((p: any) => p.id === item.product.id)
+      if (liveProduct && item.quantity > liveProduct.stock_quantity) {
+        toast({
+          title: 'Stock Changed',
+          description: `${item.product.name} now only has ${liveProduct.stock_quantity} units available. Please update your cart.`,
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
-      await createTransaction.mutateAsync({ customerName, items: cart })
-      toast({ title: 'Transaction recorded successfully!', description: `Total: ${formatCurrency(cartTotal)}` })
+      await createTransaction.mutateAsync({ customerName: nameResult.data, items: cart })
+      toast({ title: 'Transaction recorded!', description: `Total: ${formatCurrency(cartTotal)}` })
       setNewTxnOpen(false)
       setCart([])
       setCustomerName('Walk-in Customer')
-    } catch {
-      toast({ title: 'Error', description: 'Failed to record transaction.', variant: 'destructive' })
+      setCustomerNameError('')
+    } catch (err) {
+      toast({ title: 'Transaction Failed', description: parseTransactionError(err), variant: 'destructive' })
     }
   }
 
-  const availableProducts = products.filter(p => p.stock_quantity > 0 && !cart.find(i => i.product.id === p.id))
+  const availableProducts = products.filter((p: any) => p.stock_quantity > 0 && !cart.find((i: any) => i.product.id === p.id))
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -137,7 +263,7 @@ export default function TransactionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(t => (
+                {filtered.map((t: any) => (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs font-semibold text-primary">{t.transaction_number}</TableCell>
                     <TableCell>{t.customer_name}</TableCell>
@@ -145,10 +271,13 @@ export default function TransactionsPage() {
                     <TableCell className="text-muted-foreground">{t.transaction_items?.length ?? 0} items</TableCell>
                     <TableCell className="font-semibold">{formatCurrency(t.total_amount)}</TableCell>
                     <TableCell><StatusBadge status={t.status} /></TableCell>
-                    <TableCell>
-                      <div className="flex justify-end">
-                        <Button variant="ghost" size="icon-sm" onClick={() => setViewTxn(t)}>
+                     <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="icon-sm" onClick={() => setViewTxn(t)} title="View Details">
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" className="text-primary hover:text-primary hover:bg-primary/10" onClick={() => printReceipt(t)} title="Print Receipt">
+                          <Printer className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -161,47 +290,57 @@ export default function TransactionsPage() {
       </Card>
 
       {/* New Transaction Dialog */}
-      <Dialog open={newTxnOpen} onOpenChange={setNewTxnOpen}>
+      <Dialog open={newTxnOpen} onOpenChange={open => { setNewTxnOpen(open); if (!open) { setCart([]); setCustomerName('Walk-in Customer'); setCustomerNameError(''); setQtyError('') } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Transaction</DialogTitle>
-            <DialogDescription>Record a customer purchase</DialogDescription>
+            <DialogDescription>Record a customer purchase and update inventory</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Customer Name</Label>
-              <Input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Walk-in Customer" />
+              <Label>Customer Name *</Label>
+              <Input
+                value={customerName}
+                onChange={e => { setCustomerName(e.target.value); setCustomerNameError('') }}
+                placeholder="Walk-in Customer"
+                maxLength={200}
+              />
+              {customerNameError && <p className="text-xs text-destructive">{customerNameError}</p>}
             </div>
 
             {/* Product Selector */}
             <div className="border border-border rounded-lg p-4 space-y-3">
-              <p className="text-sm font-medium text-foreground">Add Products</p>
+              <p className="text-sm font-medium text-foreground">Add Products to Cart</p>
               <div className="flex gap-2">
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                <Select value={selectedProductId} onValueChange={id => { setSelectedProductId(id); setQtyError('') }}>
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Select a product..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableProducts.map(p => (
+                    {availableProducts.map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name} — {formatCurrency(p.unit_price)}/{p.unit} ({p.stock_quantity} available)
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
-                  type="number"
-                  min="1"
-                  value={qty}
-                  onChange={e => setQty(parseInt(e.target.value) || 1)}
-                  className="w-24"
-                  placeholder="Qty"
-                />
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min="1"
+                    max="999999"
+                    value={qty}
+                    onChange={e => { setQty(parseInt(e.target.value) || 1); setQtyError('') }}
+                    className="w-24"
+                    placeholder="Qty"
+                  />
+                </div>
                 <Button type="button" onClick={addToCart} disabled={!selectedProductId}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
+              {qtyError && <p className="text-xs text-destructive">{qtyError}</p>}
             </div>
 
             {/* Cart */}
@@ -218,7 +357,7 @@ export default function TransactionsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cart.map(item => (
+                    {cart.map((item: any) => (
                       <TableRow key={item.product.id}>
                         <TableCell className="font-medium">{item.product.name}</TableCell>
                         <TableCell>{item.quantity} {item.product.unit}</TableCell>
@@ -226,7 +365,7 @@ export default function TransactionsPage() {
                         <TableCell className="font-semibold text-primary">{formatCurrency(item.product.unit_price * item.quantity)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => removeFromCart(item.product.id)}>
-                            ×
+                            <X className="h-4 w-4" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -242,18 +381,47 @@ export default function TransactionsPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setNewTxnOpen(false); setCart([]) }}>Cancel</Button>
+            <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>Cancel</Button>
             <Button
               onClick={handleSubmitTransaction}
               disabled={cart.length === 0 || createTransaction.isPending}
               className="gap-2"
             >
               <ShoppingCart className="h-4 w-4" />
-              {createTransaction.isPending ? 'Processing...' : `Record Transaction ${cart.length > 0 ? `(${formatCurrency(cartTotal)})` : ''}`}
+              {createTransaction.isPending
+                ? 'Processing...'
+                : `Record Transaction${cart.length > 0 ? ` (${formatCurrency(cartTotal)})` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard Transaction?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel? Any products added to this transaction will be discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, Keep Editing</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setCancelConfirmOpen(false)
+                setNewTxnOpen(false)
+                setCart([])
+                setCustomerName('Walk-in Customer')
+                setCustomerNameError('')
+                setQtyError('')
+              }}
+            >
+              Yes, Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* View Transaction Dialog */}
       <Dialog open={!!viewTxn} onOpenChange={() => setViewTxn(null)}>
@@ -283,7 +451,12 @@ export default function TransactionsPage() {
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">Items Purchased</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-foreground">Items Purchased</p>
+                  <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => printReceipt(viewTxn)}>
+                    <Printer className="h-3.5 w-3.5" />Print Receipt
+                  </Button>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -294,7 +467,7 @@ export default function TransactionsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(viewTxn.transaction_items ?? []).map(item => (
+                    {(viewTxn.transaction_items ?? []).map((item: any) => (
                       <TableRow key={item.id}>
                         <TableCell>{item.products?.name ?? '—'}</TableCell>
                         <TableCell>{item.quantity} {item.products?.unit}</TableCell>

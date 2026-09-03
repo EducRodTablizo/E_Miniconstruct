@@ -3109,6 +3109,40 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_chats: {
+        Row: {
+          created_at: string | null
+          id: string
+          messages: Json
+          title: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          messages?: Json
+          title: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          messages?: Json
+          title?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_chats_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -3167,6 +3201,58 @@ export type Database = {
         }
         Relationships: []
       }
+      historical_reports: {
+        Row: {
+          audit_summary: Json | null
+          created_at: string | null
+          generated_by: string | null
+          id: string
+          inventory_changes: Json | null
+          period_end: string
+          period_label: string
+          period_start: string
+          report_type: string
+          total_sales: number
+          total_transactions: number
+          user_activities: Json | null
+        }
+        Insert: {
+          audit_summary?: Json | null
+          created_at?: string | null
+          generated_by?: string | null
+          id?: string
+          inventory_changes?: Json | null
+          period_end: string
+          period_label: string
+          period_start: string
+          report_type: string
+          total_sales?: number
+          total_transactions?: number
+          user_activities?: Json | null
+        }
+        Update: {
+          audit_summary?: Json | null
+          created_at?: string | null
+          generated_by?: string | null
+          id?: string
+          inventory_changes?: Json | null
+          period_end?: string
+          period_label?: string
+          period_start?: string
+          report_type?: string
+          total_sales?: number
+          total_transactions?: number
+          user_activities?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historical_reports_generated_by_fkey"
+            columns: ["generated_by"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           category_id: string | null
@@ -3216,20 +3302,26 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          email: string | null
           full_name: string
           id: string
+          is_active: boolean
           role: string
         }
         Insert: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id: string
+          is_active?: boolean
           role?: string
         }
         Update: {
           created_at?: string
+          email?: string | null
           full_name?: string
           id?: string
+          is_active?: boolean
           role?: string
         }
         Relationships: []
@@ -3415,6 +3507,14 @@ export type Database = {
       generate_transaction_number: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      get_my_role: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      is_owner: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
       }
       log_audit_event: {
         Args: {

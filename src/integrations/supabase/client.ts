@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 //const SUPABASE_URL = "https://spb-t4n5qmnlazw5h07r.supabase.opentrust.net";
-const SUPABASE_URL = "https://xotpszgubcfoulspbebg.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_0sUAHHLTpxCRaRS_vVf4KA_HkLRQsuQ";
+export const SUPABASE_URL = "https://xotpszgubcfoulspbebg.supabase.co";
+export const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_0sUAHHLTpxCRaRS_vVf4KA_HkLRQsuQ";
 // const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvdHBzemd1YmNmb3Vsc3BiZWJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAAzMDYyNTEsImV4cCI6MjA5NTg4MjI1MX0.b-EHjIju1Se5NyiAfer8pzIC3Z2jTKts2T6W_qBhEfA";
 
 

@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from '@/hooks/useToast'
 import {
   Dialog,
@@ -74,15 +73,14 @@ function PasswordStrength({ password }: { password: string }) {
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false) // Requirement 2: Control states for signup modal
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
-  const loginForm = useForm<LoginForm>({ resolver: zodResolver(loginSchema) })
-  const signupForm = useForm<SignupForm>({ resolver: zodResolver(signupSchema) })
-  const watchedPassword = signupForm.watch('password') ?? ''
+  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({
+    resolver: zodResolver(loginSchema),
+  })
 
   // Requirements 3 & 4: Catch the callback parameter hash upon landing back onto page
   useEffect(() => {
@@ -120,7 +118,14 @@ export default function LoginPage() {
     const { error } = await signIn(data.email, data.password)
     setIsLoading(false)
     if (error) {
-      toast({ title: 'Login Failed', description: error.message, variant: 'destructive' })
+      const msg = error.message.toLowerCase()
+      if (msg.includes('deactivated')) {
+        toast({ title: 'Account Deactivated', description: error.message, variant: 'destructive' })
+      } else if (msg.includes('invalid login') || msg.includes('invalid credentials') || msg.includes('wrong password')) {
+        toast({ title: 'Login Failed', description: 'Invalid email or password. Please try again.', variant: 'destructive' })
+      } else {
+        toast({ title: 'Login Failed', description: error.message, variant: 'destructive' })
+      }
     } else {
       toast({ title: 'Welcome back!', description: 'Logged in successfully.' })
       navigate('/dashboard')
@@ -171,15 +176,30 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="login">
-          <TabsList className="w-full">
-            <TabsTrigger value="login" className="flex-1 gap-2">
-              <LogIn className="h-4 w-4" /> Sign In
-            </TabsTrigger>
-            <TabsTrigger value="signup" className="flex-1 gap-2">
-              <UserPlus className="h-4 w-4" /> Create Account
-            </TabsTrigger>
-          </TabsList>
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-primary" />
+              System Sign In
+            </CardTitle>
+            <CardDescription>
+              Enter your credentials to access the inventory system.
+              Account creation is restricted to administrators.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit(onLogin)} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="admin@miniconstruct.com"
+                  autoComplete="email"
+                  {...register('email')}
+                />
+                {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+              </div>
 
           {/* LOGIN */}
           <TabsContent value="login">
@@ -227,65 +247,15 @@ export default function LoginPage() {
             </Card>
           </TabsContent>
 
-          {/* SIGNUP */}
-          <TabsContent value="signup">
-            <Card>
-              <CardHeader className="pb-4">
-                <CardTitle>Create Account</CardTitle>
-                <CardDescription>Set up your administrator account</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={signupForm.handleSubmit(onSignup)} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="full-name">Full Name</Label>
-                    <Input id="full-name" placeholder="Juan dela Cruz" {...signupForm.register('fullName')} />
-                    {signupForm.formState.errors.fullName && <p className="text-xs text-destructive">{signupForm.formState.errors.fullName.message}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-email">Email Address</Label>
-                    <Input id="signup-email" type="email" placeholder="admin@miniconstruct.com" {...signupForm.register('email')} />
-                    {signupForm.formState.errors.email && <p className="text-xs text-destructive">{signupForm.formState.errors.email.message}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="signup-password"
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Create a strong password"
-                        {...signupForm.register('password')}
-                      />
-                      <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowPassword(!showPassword)}>
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {signupForm.formState.errors.password && <p className="text-xs text-destructive">{signupForm.formState.errors.password.message}</p>}
-                    <PasswordStrength password={watchedPassword} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="confirm-password">Confirm Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="confirm-password"
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        placeholder="Repeat your password"
-                        {...signupForm.register('confirmPassword')}
-                      />
-                      <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
-                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                    {signupForm.formState.errors.confirmPassword && <p className="text-xs text-destructive">{signupForm.formState.errors.confirmPassword.message}</p>}
-                  </div>
-                  <Button type="submit" className="w-full gap-2" disabled={isLoading} size="lg">
-                    {isLoading ? <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                    {isLoading ? 'Creating account...' : 'Create Account'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              <Button type="submit" className="w-full gap-2" size="lg" disabled={isLoading}>
+                {isLoading
+                  ? <div className="h-4 w-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                  : <LogIn className="h-4 w-4" />}
+                {isLoading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
         <p className="text-center text-xs text-muted-foreground">
           MiniConstruct v1.0 &mdash; Secure Inventory Management
