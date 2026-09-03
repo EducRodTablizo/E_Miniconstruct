@@ -297,11 +297,11 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="unit_price">Unit Price (PHP) *</Label>
-                  <Input id="unit_price" type="number" step="0.01" min="0" max="9999999" placeholder="0.00" {...register('unit_price')} />
-                  {errors.unit_price && <p className="text-xs text-destructive">{errors.unit_price.message}</p>}
-                </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="unit_price">Unit Price (PHP) *</Label>
+              <Input id="unit_price" type="number" step="1.00" min="0" {...register('unit_price')} />
+              {errors.unit_price && <p className="text-xs text-destructive">{errors.unit_price.message}</p>}
+            </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
